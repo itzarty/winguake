@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>WinGauke</title>
+        <link rel="stylesheet" type="text/css" href="assets/css/style.css" />
+        <link rel="stylesheet" type="text/css" href="assets/css/fontawesome.min.css" />
+        <link rel="stylesheet" type="text/css" href="../node_modules/@xterm/xterm/css/xterm.css" />
+        <script src="assets/js/au.js"></script>
+        <script src="assets/js/sortable.min.js"></script>
+        <script src="assets/js/core.js" defer></script>
+    </head>
+    <body>
+        <div class="container">
+            <div class="modal-wrapper">
+                <div class="modal">
+                    <div class="modal-header">
+                        <span class="modal-title"></span>
+                    </div>
+                    <div class="modal-body"></div>
+                </div>
+            </div>
+            <div class="toolbar">
+                <div class="tabs"></div>
+                <div class="button" id="btn_instance">
+                    <i class="fa-solid fa-plus"></i>
+                </div>
+                <div class="button" id="btn_preferences">
+                    <i class="fa-solid fa-gear"></i>
+                </div>
+            </div>
+            <div class="wrappers"></div>
+            <div class="boundary top"></div>
+            <div class="boundary bottom"></div>
+            <div class="boundary left"></div>
+            <div class="boundary right"></div>
+        </div>
+        <video id="background"></video>
+    </body>
+</html>
