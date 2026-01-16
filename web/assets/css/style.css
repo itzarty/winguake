@@ -271,11 +271,3 @@ body {
     height: 10rem;
     top: unset;
 }
-
-#background {
-    position: fixed;
-    top: 0px;
-    left: 0px;
-    filter: blur(4px);
-    z-index: -1;
-}

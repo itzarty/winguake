@@ -604,7 +604,6 @@
         }
 
         send( 'bounding', bounding );
-        // ipcRenderer.send( 'background' );
     }
 
     let resizing = false;
@@ -631,31 +630,6 @@
         } );
         UI.boundaryActive( )?.classList.remove( 'active' );
     }
-
-    ipcRenderer.on( 'background', async ( event, sources ) => {
-        const stream = await navigator.mediaDevices.getUserMedia( {
-            audio: false,
-            video: {
-                mandatory: {
-                    chromeMediaSource: 'desktop',
-                    chromeMediaSourceId: sources[0],
-                    minWidth: 1280,
-                    maxWidth: 1920,
-                    minHeight: 720,
-                    maxHeight: 1080,
-                    cursor: 'never'
-                }
-            }
-        } );
-        background.srcObject = stream;
-        background.onloadedmetadata = ( ) => background.play( );
-        const loop = ( ) => {
-            background.style.left = -(window.screenLeft * window.devicePixelRatio) + 'px';
-            background.style.top = -(window.screenTop * window.devicePixelRatio) + 'px';
-            requestAnimationFrame( loop );
-        }
-        loop( );
-    } );
 
     const { send } = new IPC( ipcRenderer, ipcRenderer, {
         ghost: active => {

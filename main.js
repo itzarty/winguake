@@ -11,7 +11,6 @@
         Menu,
         Notification,
         nativeImage,
-        desktopCapturer,
         dialog
     } = require( 'electron' );
     const path = require( 'path' );
@@ -41,8 +40,6 @@
         skipTaskbar: true,
         transparent: true
     } );
-
-    // window.setContentProtection(true);
 
     const instances = { };
 
@@ -194,21 +191,15 @@
         setTimeout( ( ) => resizeLoop( direction ), 10 );
     }
 
-    ipcMain.on( 'background', event => {
-        desktopCapturer.getSources( { types: [ 'screen' ] } ).then( sources => {
-            event.reply( 'background', sources.map( source => source.id ) );
-        } );
-    } );
-
     const keysDown = [ ];
 
-Array.prototype.compare = function( array ) {
-	if( this.length != array.length ) return false;
-	for( let i = 0; i < this.length; i++ ) {
-		if( this[ i ] != array[ i ] ) return false;
-	}
-	return true;
-}
+    Array.prototype.compare = function( array ) {
+        if( this.length != array.length ) return false;
+        for( let i = 0; i < this.length; i++ ) {
+            if( this[ i ] != array[ i ] ) return false;
+        }
+        return true;
+    }
 
     let autoLaunch;
 
