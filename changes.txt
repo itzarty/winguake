@@ -1,0 +1,8 @@
+* redesigned modals and the preference menu
+* cleaned the code up a bit
+* reworked config access
+* added font cache
+* dropped `globalShortcut` in favour of `uIOhook`
+* reworked keybinding backend
+* patched resizing (typo)
+* dropped unused code

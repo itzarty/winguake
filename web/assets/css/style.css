@@ -1,19 +1,24 @@
+@font-face {
+    font-family: FiraCode;
+    src: url(../webfonts/FiraCode.ttf);
+}
 :root {
     --toolbarHeight: 2.5rem;
     --spacing: 0.5rem;
+    --radius: 0.25rem;
 }
 html {
     scroll-behavior: smooth;
 }
 body {
     color: #ffffff;
-    font-family: monospace;
     padding: 0px;
     margin: 0px;
     height: 100vh;
     display: flex;
     flex-direction: column;
     user-select: none;
+    font-family: FiraCode;
 }
 * {
     box-sizing: border-box;
@@ -133,12 +138,13 @@ body {
     bottom: 0px;
     background-color: rgba( 0, 0, 0, 0.75 );
     display: flex;
-    justify-content: center;
-    align-items: center;
+    justify-content: end;
+    align-items: start;
     z-index: 100;
     pointer-events: none;
     transition: 0.15s;
     opacity: 0;
+    padding: var(--spacing)
 }
 .modal-wrapper.active {
     opacity: 1;
@@ -148,6 +154,7 @@ body {
     display: flex;
     flex-direction: column;
     min-width: 25vw;
+    height: 100%;
     grid-gap: var(--spacing);
 }
 .modal-header {
@@ -156,7 +163,7 @@ body {
     justify-content: center;
     align-items: center;
     height: 2.5rem;
-    border-radius: var(--spacing);
+    border-radius: var(--radius);
 }
 .modal-body {
     display: flex;
@@ -164,26 +171,123 @@ body {
     grid-gap: var(--spacing);
     flex-direction: column;
     background-color: rgba( 75, 75, 75, 0.25 );
-    border-radius: var(--spacing);
+    border-radius: var(--radius);
+    box-sizing: border-box;
+    flex: 1;
+    overflow-y: auto;
 }
-.input-group {
+.kv {
     display: flex;
-    grid-gap: 0.25rem;
-    align-items: center;
+    position: relative;
+    background-color: rgba( 50, 50, 50, 0.25 );
+    border-radius: var(--radius);
+    height: 2.5rem;
+    overflow: hidden;
+    flex-shrink: 0;
 }
-.input-group > span {
+.kv > .k {
     display: flex;
     flex: 1;
 }
-.input-group input, .input-group select, .input-group button {
-    font-family: monospace;
-    outline: none;
-    background-color: rgba( 75, 75, 75, 0.5 );
-    padding: 0.25rem 0.5rem;
-    border: none;
-    color: #ffffff;
-    border-radius: 4px;
+.kv > .k > i {
+    display: flex;
+    height: 2.5rem;
+    width: 2.5rem;
+    background-color: rgba( 75, 75, 75, 0.25 );
+    justify-content: center;
+    align-items: center;
 }
+.kv > .k:has( i ) > span {
+    margin-left: 1rem;
+}
+.kv > .k > span {
+    display: flex;
+    align-items: center;
+}
+.kv > .v {
+    display: flex;
+    align-items: center;
+    height: 100%;
+}
+span.separator {
+    display: flex;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 600;
+    font-size: 0.85rem;
+    align-items: center;
+    justify-content: center;
+    height: 2.5rem;
+    opacity: 0.5;
+    flex-shrink: 0;
+}
+
+.kv > .v > input {
+    display: flex;
+    min-width: 30%;
+    outline: none;
+    height: 100%;
+    background-color: transparent;
+    font-family: FiraCode;
+    border: none;
+    text-align: right;
+    color: #999999;
+    transition: 0.15s;
+    padding: 0px 1rem;
+}
+.kv > .v > input:focus {
+    color: #ffffff;
+}
+
+.kv > .v > select {
+    display: flex;
+    min-width: 30%;
+    outline: none;
+    height: 100%;
+    background-color: transparent;
+    font-family: FiraCode;
+    border: none;
+    text-align: right;
+    color: #999999;
+    transition: 0.15s;
+}
+.kv > .v > select:focus  {
+    color: #ffffff;
+}
+.kv > .v option {
+    color: #ffffff;
+    background-color: #1f1f1f;
+}
+
+.kv > .v > button {
+    display: flex;
+    padding: 0px 1rem;
+    background-color: rgba( 0, 0, 0, 0.15 );
+    height: 100%;
+    transition: 0.15s;
+    font-family: FiraCode;
+    color: #999999;
+    cursor: pointer;
+    border: none;
+    align-items: center;
+    outline: none
+}
+.kv > .v > button:hover {
+    background-color: rgba( 25, 25, 25, 0.15 );
+    color: #ffffff;
+}
+
+::-webkit-scrollbar {
+    width: 0.5rem;
+    background-color: #1f1f1f;
+}
+::-webkit-scrollbar-thumb {
+    background-color: #2f2f2f2f;
+}
+::-webkit-scrollbar-thumb:hover {
+    background-color: #333333;
+}
+
 .keys-wrapper {
     display: flex;
     grid-gap: var(--spacing);
@@ -213,6 +317,7 @@ body {
 
 .boundary {
     position: absolute;
+    z-index: 1000;
 }
 .boundary.left, .boundary.right {
     width: 0.15rem;
@@ -270,4 +375,8 @@ body {
     background-image: -webkit-linear-gradient(bottom, rgba( 125, 125, 125, 0.25 ), transparent);
     height: 10rem;
     top: unset;
+}
+
+#btn_preferences:hover {
+    rotate: 180deg;
 }

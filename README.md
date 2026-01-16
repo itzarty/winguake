@@ -5,12 +5,10 @@ Electron.js based utility aimed at replicating [Guake](https://guake.github.io/)
 # TODO
 
 * Customization
-    * ~~Fonts~~
-    * ~~Beam style~~
-    * ~~Transparency~~
     * Scripts
-    * Positioning, sizing
-    * ~~Keybinds~~
+    * Presets
+    * Themes and layouts
+    * More in-depth configuration & options
+    * Tab groupping and labeling
 * Codebase clean-up
-* ~~Proper packaging~~
-* Fix resizing
+* Crossplatform support

@@ -3,7 +3,6 @@
     const {
         app,
         BrowserWindow,
-        globalShortcut,
         screen,
         ipcMain,
         shell,
@@ -103,27 +102,7 @@
         show( );
     }
 
-    const actionBinds = {
-        toggle: {
-            bind: null,
-            callback: toggle
-        },
-        instance: {
-            bind: null,
-            callback: ( ) => window.webContents.send( 'instance' )
-        },
-        kill: {
-            bind: null,
-            callback: ( ) => window.webContents.send( 'kill' )
-        }
-    }
-
-    let ghostBind = [ ];
-
-    if( !app.isPackaged ) {
-        globalShortcut.register( 'f6', ( ) => window.toggleDevTools( ) );
-        globalShortcut.register( 'f5', ( ) => window.reload( ) );
-    } else {
+    if( app.isPackaged ) {
         autoLaunch = new AutoLaunch( {
             name: 'WinGuake',
             path: app.getPath( 'exe' )
@@ -203,6 +182,47 @@
 
     let autoLaunch;
 
+    const binds = {
+        kill: {
+            combination: [ ],
+            up: ( ) => send( 'kill' )
+        },
+        ghost: {
+            combination: [ ],
+            down: ( ) => {
+                window.setIgnoreMouseEvents( true );
+                send( 'ghost', true )
+            },
+            up: ( ) => {
+                window.setIgnoreMouseEvents( false );
+                send( 'ghost', false );
+                window.focus( );
+            }
+        },
+        toggle: {
+            combination: [ ],
+            up: toggle
+        },
+        instance: {
+            combination: [ ],
+            up: ( ) => send( 'instance' )
+        },
+        devTools: {
+            combination: [ UiohookKey.F6 ],
+            up: ( ) => {
+                if( !app.isPackaged )
+                window.toggleDevTools( )
+            }
+        },
+        reload: {
+            combination: [ UiohookKey.F5 ],
+            up: ( ) => {
+                if( !app.isPackaged )
+                window.reload( )
+            }
+        }
+    }
+
     const { send } = new IPC( ipcMain, window.webContents, {
         bounding: boundings => multipliers = boundings,
         startingDirectory: async ( _, answer ) => {
@@ -210,7 +230,7 @@
                 properties: [ 'openDirectory' ]
             } );
             const [ directory ] = result.filePaths;
-            answer( directory );
+            answer( false, directory );
         },
         resizeWindow: ( { state, direction } ) => {
             resizeEnable = state;
@@ -226,7 +246,7 @@
             instance.kill( );
         },
         toggleMax: ( ) => {
-            maximized != maximized;
+            maximized = !maximized;
             if( !maximized ) {
                 show( );
                 return;
@@ -240,18 +260,7 @@
         },
         bell: shell.beep,
         bind: ( { name, combination } ) => {
-            if( name == 'ghost' ) {
-                ghostBind = combination.replaceAll( 'Control', 'Ctrl' ).split( '+' ).map( str => UiohookKey[ str ] );
-                return;
-            }
-
-            const action = actionBinds[ name ];
-            if( !action ) return;
-
-            if( action.bind ) globalShortcut.unregister( action.bind );
-
-            action.bind = combination;
-            globalShortcut.register( combination, action.callback );
+            binds[ name ].combination = combination.replaceAll( 'Control', 'Ctrl' ).split( '+' ).map( str => UiohookKey[ str ] );
         },
         autoLaunch: async ( _, answer ) => {
             if( !app.isPackaged ) {
@@ -296,28 +305,33 @@
                 write: data => ptyProcess.write( data ),
                 kill: ( ) => ptyProcess.kill( )
             } );
+
+            show( );
         }
     }, console.error );
 
     uIOhook.on( 'keydown', event => {
         if( keysDown.indexOf( event.keycode ) == -1 ) keysDown.push( event.keycode );
 
-        if( keysDown.compare( ghostBind ) ) {
-            window.setIgnoreMouseEvents( true );
-            send( 'ghost', true );
+        for( const bind in binds ) {
+            const { combination, down } = binds[ bind ];
+            if( !down ) continue;
+            if( !combination.compare( keysDown ) ) continue;
+            down( );
         }
     } );
 
 
     uIOhook.on( 'keyup', event => {
+        for( const bind in binds ) {
+            const { combination, up } = binds[ bind ];
+            if( !up ) continue;
+            if( !combination.compare( keysDown ) ) continue;
+            up( );
+        }
+
         const index = keysDown.indexOf( event.keycode );
         if( index != -1 ) keysDown.splice( index, 1 );
-
-        if( !keysDown.compare( ghostBind ) ) {
-            window.setIgnoreMouseEvents( false );
-            send( 'ghost', false );
-            window.focus( );
-        }
     } );
 
     uIOhook.start( );

@@ -1,3 +1,4 @@
+let cfg;
 ( async ( ) => {
 
     const { Terminal } = require( '@xterm/xterm' );
@@ -9,6 +10,13 @@
     const os = require( 'os' );
 
     const IPC = require( './ipc.js' );
+
+    // localStorage proxy
+
+    const CONFIG = new Proxy( { ... localStorage }, {
+        set: ( object, property, value ) => localStorage.setItem( property, value ),
+        get: ( target, property, receiver ) => localStorage.getItem( property )
+    } );
 
     // Default configuration
 
@@ -32,9 +40,9 @@
     }
 
     for( const key in DEFAULTS ) {
-        if( localStorage.hasOwnProperty( key ) ) continue;
+        if( typeof CONFIG[ key ] != null ) continue;
         const value = DEFAULTS[ key ];
-        localStorage.setItem( key, value );
+        CONFIG[ key ] = value;
     }
 
     const UI = {
@@ -152,9 +160,9 @@
 
             this.terminal = new Terminal( {
                 cursorBlink: true,
-                fontFamily: localStorage.getItem( 'font' ),
-                cursorStyle: localStorage.getItem( 'cursor' ),
-                fontSize: localStorage.getItem( 'fontSize' )
+                fontFamily: CONFIG.font,
+                cursorStyle: CONFIG.cursor,
+                fontSize: CONFIG.fontSize
             } );
 
             // custom handlers
@@ -194,7 +202,7 @@
 
             // prepare target
 
-            let cwd = localStorage.getItem( 'startingDirectory' ), file;
+            let cwd = CONFIG.startingDirectory;
 
             const exists = fs.existsSync( target );
             if( exists ) {
@@ -217,7 +225,7 @@
         initialize = async ( cwd, file ) => {
             this.ipc = await send( 'instance', {
                 id: this.id,
-                shell: localStorage.getItem( 'shell' ),
+                shell: CONFIG.shell,
                 cwd,
                 file,
                 // callbacks
@@ -307,21 +315,6 @@
 
     btn_instance.onclick = ( ) => new Instance( );
 
-    const closeInstance = id => {
-        const instance = instances[ id ];
-        if( !instance ) return;
-        instance.destroy( );
-        
-        const dInstances = Object.values( instances );
-        if( dInstances.length == 0 ) {
-            new Instance( );
-            return;
-        }
-
-        dInstances.at( -1 ).activate( );
-    }
-
-
     const copySelection = ( ) => {
         const selection = activeInstance?.terminal.getSelection( );
         if( !selection ) return;
@@ -356,7 +349,7 @@
         const index = keysDown.indexOf( event.key );
         if( index != -1 ) keysDown.splice( index, 1 );
 
-        if( event.key == localStorage.getItem( 'bindMax' ) ) {
+        if( event.key == CONFIG.bindMax ) {
             event.preventDefault( );
             send( 'toggleMax' );
             return;
@@ -430,7 +423,7 @@
 
     const renderBinder = ( bind, parent ) => {
         const item = 'bind' + bind[ 0 ].toUpperCase( ) + bind.slice( 1 );
-        const current = localStorage.getItem( item );
+        const current = CONFIG[ item ];
         const rendered = current.split( '+' ).map( key => {
             if( key == 'Meta' ) key = '<i class="fa-brands fa-windows"></i>'
             if( key == 'Shift' ) key = '<i class="fa-solid fa-angles-down"></i>'
@@ -443,7 +436,7 @@
             onclick: ( ) => {
                 getKeyCombination( ).then( combination => {
                     const translated = combination.join( '+' );
-                    localStorage.setItem( item, translated );
+                    CONFIG[ item ] = translated;
                     send( 'bind', {
                         name: bind,
                         combination: translated
@@ -454,10 +447,49 @@
         } );
     }
 
+    const fontCache = {
+        fonts: [ ],
+        updated: 0
+    }
+
+    getFonts( ).then( fonts => {
+        fontCache.fonts = fonts;
+        fontCache.updated = Date.now( );
+    } );
+
+    const Fonts = async ( ) => {
+        const stamp = Date.now( );
+        if( fontCache.updated + ( 1000 * 60 * 5 ) < stamp ) {
+            const fonts = await getFonts( );
+            fontCache.fonts = fonts;
+            fontCache.updated = stamp;
+        }
+        return fontCache.fonts;
+    }
+
+    const KV = ( { label, icon, content }, parent ) => {
+        const wrapper = $qn( '.kv', parent );
+
+        const keyWrapper = $qn( '.k', wrapper );
+        if( icon ) keyWrapper.innerHTML += icon;
+        $qn( 'span', keyWrapper, label );
+
+        const valueElement = $qn( '.v', wrapper );
+        if( content ) valueElement.innerHTML = content;
+        return valueElement;
+    }
+
     const preferences = async ( ) => {
         const modal = modalOpen( 'Preferences' );
         
-        const cursorGroup = $qn( '.input-group', modal, '<i class="fa-solid fa-i-cursor"></i><span>Cursor style</span>' );
+        $qn( 'span.separator', modal, 'Appearance' );
+
+        // Cursor style
+
+        const kvCursor = KV( {
+            label: 'Cursor style',
+            icon: '<i class="fa-solid fa-i-cursor"></i>'
+        }, modal );
 
         buildSelect( {
             options: {
@@ -465,71 +497,93 @@
                 block: 'Block',
                 underline: 'Underline'
             },
-            parent: cursorGroup,
-            selected: localStorage.getItem( 'cursor' ),
-            callback: option => localStorage.setItem( 'cursor', option )
+            parent: kvCursor,
+            selected: CONFIG.cursor,
+            callback: option => CONFIG.cursor = option
         } );
 
-        const fontGroup = $qn( '.input-group', modal, '<i class="fa-solid fa-font"></i><span>Font family</span>' );
+        // Font family
 
-        getFonts( ).then( fonts => {
-            const currentFont = fonts.indexOf( localStorage.getItem( 'font' ) );
+        const kvFont = KV( {
+            label: 'Font family',
+            icon: '<i class="fa-solid fa-font"></i>'
+        }, modal );
 
-            buildSelect( {
-                options: fonts,
-                parent: fontGroup,
-                selected: currentFont,
-                callback: option => {
-                    const font = fonts[ option ];
-                    localStorage.setItem( 'font', font, ', monospace' );
+        const fonts = await Fonts( );
+        const currentFont = fonts.indexOf( CONFIG.font );
 
-                    for( const id in instances ) instances[ id ].setFont( font );
-                }
-            } );
+        buildSelect( {
+            options: fonts,
+            parent: kvFont,
+            selected: currentFont,
+            callback: option => {
+                const font = fonts[ option ];
+                CONFIG.font = font;
+
+                for( const id in instances ) instances[ id ].setFont( font );
+            }
         } );
 
-        const sizeGroup = $qn( '.input-group', modal, '<i class="fa-solid fa-text-width"></i><span>Font size</span>' );
+        // Font size
+
+        const kvSize = KV( {
+            label: 'Font size',
+            icon: '<i class="fa-solid fa-text-width"></i>'
+        }, modal );
 
         const fontSizeInput = $n( {
             tag: 'input',
             type: 'number',
             min: 8,
             max: 64,
-            value: localStorage.getItem( 'fontSize' ),
-            parent: sizeGroup,
+            value: CONFIG.fontSize,
+            parent: kvSize,
             onchange: event => {
                 const size = fontSizeInput.value;
-                localStorage.setItem( 'fontSize', fontSizeInput.value );
+                CONFIG.fontSize = fontSizeInput.value;
 
-                const font = localStorage.getItem( 'font' );
+                const font = CONFIG.font;
                 for( const id in instances ) instances[ id ].setFont( font, size );
             }
         } );
 
-        const shellGroup = $qn( '.input-group', modal, '<i class="fa-solid fa-terminal"></i><span>Shell</span>' );
+        $qn( 'span.separator', modal, 'Behavior' );
+
+        // Shell
+
+        const kvShell = KV( {
+            label: 'Shell',
+            icon: '<i class="fa-solid fa-terminal"></i>'
+        }, modal );
 
         const shellInput = $n( {
             tag: 'input',
             type: 'text',
-            value: localStorage.getItem( 'shell' ),
-            parent: shellGroup
+            value: CONFIG.shell,
+            parent: kvShell
         } );
 
         $n( {
             tag: 'button',
-            text: 'Apply',
-            parent: shellGroup,
+            html: '<i class="fa-solid fa-check"></i>',
+            parent: kvShell,
             onclick: ( ) => {
                 const shell = shellInput.value;
-                localStorage.setItem( 'shell', shell );
+                CONFIG.shell = shell;
             }
         } );
 
-        const autoLaunchGroup = $qn( '.input-group', modal, '<i class="fa-solid fa-rocket"></i><span>Automatic launch</span>' );
+        // Automatic launch
+
+        const kvAutoLaunch = KV( {
+            label: 'Run on startup',
+            icon: '<i class="fa-solid fa-rocket"></i>'
+        }, modal );
+
         const autoLaunchCheck = $n( {
             tag: 'input',
             type: 'checkbox',
-            parent: autoLaunchGroup,
+            parent: kvAutoLaunch,
             onclick: async ( ) => {
                 const result = await send( 'toggleAutoLaunch' );
                 autoLaunchCheck.checked = result;
@@ -537,76 +591,93 @@
             checked: await send( 'autoLaunch' )
         } );
 
-        const toggleGroup = $qn( '.input-group', modal, '<i class="fa-solid fa-keyboard"></i><span>Toggle bind</span>' );
-        renderBinder( 'toggle', toggleGroup );
+        // Starting directory
 
-        const instanceGroup = $qn( '.input-group', modal, '<i class="fa-solid fa-keyboard"></i><span>New instance bind</span>' );
-        renderBinder( 'instance', instanceGroup );
+        const kvStart = KV( {
+            label: 'Starting directory',
+            icon: '<i class="fa-solid fa-folder"></i>'
+        }, modal );
 
-        const killGroup = $qn( '.input-group', modal, '<i class="fa-solid fa-keyboard"></i><span>Kill instance bind</span>' );
-        renderBinder( 'kill', killGroup );
-
-        const maximizeGroup = $qn( '.input-group', modal, '<i class="fa-solid fa-keyboard"></i><span>Toggle maximize bind</span>' );
-        renderBinder( 'max', maximizeGroup );
-
-        const ghostGroup = $qn( '.input-group', modal, '<i class="fa-solid fa-keyboard"></i><span>Ghost bind</span>' );
-        renderBinder( 'ghost', ghostGroup );
-
-        const startingGroup = $qn( '.input-group', modal, '<i class="fa-solid fa-folder"></i><span>Starting directory</span>' );
         const startingButton = $n( {
             tag: 'button',
-            parent: startingGroup,
-            text: localStorage.getItem( 'startingDirectory' ),
+            parent: kvStart,
+            text: CONFIG.startingDirectory,
             onclick: async ( ) => {
                 const directory = await send( 'startingDirectory' );
-                localStorage.setItem( 'startingDirectory', directory );
+                if( !directory ) return;
+                CONFIG.startingDirectory = directory;
                 startingButton.innerText = directory;
             }
         } );
 
-        const authorGroup = $qn( '.input-group', modal, '<i class="fa-solid fa-user"></i><span>Author</span>' );
-        $n( {
-            tag: 'button',
-            text: 'Arty',
-            parent: authorGroup,
-            onclick: ( ) => shell.openExternal( 'https://www.itzarty.eu' )
-        } );
+        $qn( 'span.separator', modal, 'Keyboard shortcuts' );
+
+        // Binds
+
+        const kvToggle = KV( {
+            label: 'Toggle visibility',
+            icon: '<i class="fa-solid fa-power-off"></i>'
+        }, modal );
+        renderBinder( 'toggle', kvToggle );
+
+        const kvInstance = KV( {
+            label: 'New instance',
+            icon: '<i class="fa-solid fa-plus"></i>'
+        }, modal );
+        renderBinder( 'instance', kvInstance );
+
+        const kvKill = KV( {
+            label: 'Kill instance',
+            icon: '<i class="fa-solid fa-skull-crossbones"></i>'
+        }, modal );
+        renderBinder( 'kill', kvKill );
+
+        const kvMaximize = KV( {
+            label: 'Toggle window size',
+            icon: '<i class="fa-solid fa-keyboard"></i>'
+        }, modal );
+        renderBinder( 'max', kvMaximize );
+
+        const kvGhost = KV( {
+            label: 'Enter ghost mode',
+            icon: '<i class="fa-solid fa-ghost"></i>'
+        }, modal );
+        renderBinder( 'ghost', kvGhost );
     }
 
     btn_preferences.onclick = preferences;
 
     window.onload = async ( ) => {
-        const target = process.argv.at( -1 );
-        new Instance( );
-
+        console.log( '?????' );
         send( 'bind', {
             name: 'toggle',
-            combination: localStorage.getItem( 'bindToggle' )
+            combination: CONFIG.bindToggle
         } );
         send( 'bind', {
             name: 'instance',
-            combination: localStorage.getItem( 'bindInstance' )
+            combination: CONFIG.bindInstance
         } );
         send( 'bind', {
             name: 'kill',
-            combination: localStorage.getItem( 'bindKill' )
+            combination: CONFIG.bindKill
         } );
         send( 'bind', {
             name: 'ghost',
-            combination: localStorage.getItem( 'bindGhost' )
+            combination: CONFIG.bindGhost
         } );
 
         const bounding = {
-            x: localStorage.getItem( 'boundingX' ),
-            y: localStorage.getItem( 'boundingY' ),
-            width: localStorage.getItem( 'boundingWidth' ),
-            height: localStorage.getItem( 'boundingHeight' )
+            x: CONFIG.boundingX,
+            y: CONFIG.boundingY,
+            width: CONFIG.boundingWidth,
+            height: CONFIG.boundingHeight
         }
 
         send( 'bounding', bounding );
-    }
 
-    let resizing = false;
+        const target = process.argv.at( -1 );
+        new Instance( );
+    }
 
     for( const direction in UI.boundaries ) {
         const element = UI.boundaries[ direction ];
@@ -641,10 +712,10 @@
             activeInstance.terminal.focus( );
         },
         bounding: ( { x, y, width, height } ) => {
-            localStorage.setItem( 'boundingX', x );
-            localStorage.setItem( 'boundingY', y );
-            localStorage.setItem( 'boundingWidth', width );
-            localStorage.setItem( 'boundingHeight', height );
+            CONFIG.boundingX = x;
+            CONFIG.boundingY = y;
+            CONFIG.boundingWidth = width;
+            CONFIG.boundingHeight = height;
         },
         instance: target => new Instance( target ),
         kill: ( ) => activeInstance.kill( )
