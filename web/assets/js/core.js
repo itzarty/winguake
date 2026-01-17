@@ -473,8 +473,7 @@
     } );
 
     const renderBinder = ( bind, parent ) => {
-        const item = 'bind' + bind[ 0 ].toUpperCase( ) + bind.slice( 1 );
-        const current = CONFIG[ item ];
+        const current = CONFIG.binds[ bind ];
         const rendered = current.split( '+' ).map( key => {
             if( key == 'Meta' ) key = '<i class="fa-brands fa-windows"></i>'
             if( key == 'Shift' ) key = '<i class="fa-solid fa-angles-down"></i>'
@@ -487,7 +486,7 @@
             onclick: ( ) => {
                 getKeyCombination( ).then( combination => {
                     const translated = combination.join( '+' );
-                    CONFIG.binds[ item ] = translated;
+                    CONFIG.binds[ bind ] = translated;
                     send( 'bind', {
                         name: bind,
                         combination: translated

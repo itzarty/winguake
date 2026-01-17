@@ -1,2 +1,1 @@
-* fixed starting directory
-* fixed autoLaunch on production
+* bind config hotfix
