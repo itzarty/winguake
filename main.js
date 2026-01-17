@@ -12,9 +12,13 @@
         dialog
     } = require( 'electron' );
     const path = require( 'path' );
-    const pty = require( 'node-pty' );
     const AutoLaunch = require( 'auto-launch' );
     const { UiohookKey, uIOhook } = require( 'uiohook-napi' );
+
+    const pty = require( 'node-pty' );
+    const { SerialPort } = require( 'serialport' );
+    const SSH = require( 'ssh2' );
+    const { Telnet } = require( 'telnet-client' );
 
     const IPC = require( './web/ipc.js' );
 
@@ -225,7 +229,7 @@
 
     const { send } = new IPC( ipcMain, window.webContents, {
         bounding: boundings => multipliers = boundings,
-        startingDirectory: async ( _, answer ) => {
+        selectDirectory: async ( _, answer ) => {
             const result = await dialog.showOpenDialog( {
                 properties: [ 'openDirectory' ]
             } );
@@ -286,28 +290,123 @@
 
             answer( !enabled );
         },
-        instance: ( { id, shell, cwd, file, write, exit }, answer ) => {
-            const ptyProcess = pty.spawn( shell, file ? [ file ] : [ ], {
-                name: 'xterm-color',
-                cols: 80,
-                rows: 30,
-                cwd: cwd || process.env.HOME
-            } );
+        instance: async ( {
+            id,
+            mode,
+            options,
+            write,
+            exit
+        }, answer ) => {
+            switch( mode ) {
+                default:
+                case 'shell':
+                    const { file, cwd, shell } = options;
+                    const ptyProcess = pty.spawn( shell, file ? [ file ] : [ ], {
+                        name: 'xterm-color',
+                        cols: 80,
+                        rows: 30,
+                        cwd: cwd || process.env.HOME
+                    } );
 
-            ptyProcess.onData( write );
-            ptyProcess.onExit( reason => {
-                delete instances[ id ];
-                exit( reason );
-            } );
+                    ptyProcess.onData( write );
+                    ptyProcess.onExit( reason => {
+                        delete instances[ id ];
+                        exit( reason );
+                    } );
 
-            instances[ id ] = ptyProcess;
+                    instances[ id ] = {
+                        kill: ( ) => ptyProcess.kill( ),
+                        write: data => ptyProcess.write( data ),
+                        resize: ( cols, rows ) => ptyProcess.resize( cols, rows )
+                    }
 
-            answer( true, {
-                write: data => ptyProcess.write( data ),
-                kill: ( ) => ptyProcess.kill( )
-            } );
+                    answer( true, {
+                        write: data => ptyProcess.write( data ),
+                        kill: ( ) => ptyProcess.kill( )
+                    } );
+                    break;
+                case 'serial':
+                    const { path, baudRate } = options;
+                    const port = new SerialPort( { path, baudRate } );
 
+                    const decoder = new TextDecoder( );
+
+                    port.on( 'data', data => {
+                        const decoded = decoder.decode( data );
+                        write( decoded );
+                    } );
+
+                    port.on( 'close', ( ) => {
+                        delete instances[ id ];
+                        exit( );
+                    } );
+
+                    port.on( 'error', ( ) => {
+                        exit( 'An error occured' );
+                    } );
+
+                    answer( true, {
+                        write: data => port.write( data ),
+                        kill: ( ) => port.close( )
+                    } );
+                    break;
+                case 'ssh': {
+                    const connection = new SSH.Client( );
+                    connection.on( 'ready', ( ) => {
+                        connection.shell( {
+                            term: 'xterm-color',
+                            cols: 80,
+                            rows: 24
+                        }, ( error, stream ) => {
+                            if( error ) {
+                                console.error( error );
+                                return;
+                            }
+
+                            stream.on( 'data', data => write( data ) );
+
+                            const instance = {
+                                write: data => stream.write( data ),
+                                kill: ( ) => connection.end( ),
+                                resize: ( cols, rows ) => stream.setWindow( rows, cols )
+                            }
+
+                            instances[ id ] = instance;
+
+                            answer( true, {
+                                write: data => stream.write( data ),
+                                kill: ( ) => connection.end( )
+                            } );
+                        } );
+                    } ).connect( options );
+
+                    connection.on( 'end', ( ) => {
+                        delete instances[ id ];
+                        exit( );
+                    } );
+
+                    connection.on( 'error', error => {
+                        exit( 'An error occured' );
+                    } );
+                    break;
+                }
+                case 'telnet': {
+                    const connection = new Telnet( );
+                    await connection.connect( options );
+                    connection.on( 'data', write );
+
+                    answer( true, {
+                        write: data => connection.send( data ),
+                        kill: ( ) => connection.destroy( )
+                    } );
+                    break;
+                }
+            }
             show( );
+        },
+        serialDevices: async ( _, answer ) => {
+            const devices = await SerialPort.list( );
+            answer( null, devices );
         }
     }, console.error );
 

@@ -144,7 +144,7 @@ body {
     pointer-events: none;
     transition: 0.15s;
     opacity: 0;
-    padding: var(--spacing)
+    padding: var(--spacing);
 }
 .modal-wrapper.active {
     opacity: 1;
@@ -156,6 +156,11 @@ body {
     min-width: 25vw;
     height: 100%;
     grid-gap: var(--spacing);
+    margin-right: -100%;
+    transition: 0.15s;
+}
+.modal-wrapper.active > .modal {
+    margin-right: 0px;
 }
 .modal-header {
     display: flex;
@@ -250,6 +255,7 @@ span.separator {
     text-align: right;
     color: #999999;
     transition: 0.15s;
+    margin: 0px 0.5rem;
 }
 .kv > .v > select:focus  {
     color: #ffffff;
@@ -379,4 +385,68 @@ span.separator {
 
 #btn_preferences:hover {
     rotate: 180deg;
+}
+
+.w {
+    display: flex;
+    grid-gap: var(--spacing);
+    flex: 1;
+}
+.w.v {
+    flex-direction: column;
+}
+.v.h {
+    flex-direction: row;
+}
+
+button {
+    display: flex;
+    background-color: rgba( 75, 75, 75, 0.25 );
+    border-radius: var(--radius);
+    outline: none;
+    border: none;
+    font-family: FiraCode;
+    color: #999999;
+    height: 2.5rem;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 600;
+    transition: 0.15s;
+    justify-content: center;
+    align-items: center;
+}
+button:hover {
+    background-color: rgba( 125, 125, 125, 0.25 );
+    color: #ffffff;
+}
+
+.omnibox-wrapper {
+    position: fixed;
+    z-index: 1000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    opacity: 0;
+    transition: 0.15s;
+    pointer-events: none;
+    top: 0px;
+    left: 0px;
+    right: 0px;
+    bottom: 0px;
+}
+.omnibox-wrapper.active {
+    pointer-events: initial;
+    opacity: 1;
+}
+.omnibox {
+    display: flex;
+    outline: none;
+    font-size: 1rem;
+    padding: 1rem;
+    background-color: rgba( 125, 125, 125, 0.25 );
+    color: #ffffff;
+    border-radius: var(--radius);
+    border: 2px solid rgba( 175, 175, 175, 0.25 );
+    font-family: FiraCode;
 }

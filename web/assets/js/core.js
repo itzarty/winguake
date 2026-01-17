@@ -48,15 +48,6 @@
 
     const config = JSON.parse( localStorage.getItem( 'config' ) );
 
-    const CONFIG = changeListener( config, {
-        font: ( ) => eachInstance( instance => instance.setFont( CONFIG.font.family, CONFIG.font.size ) ),
-        cursor: ( ) => eachInstance( instance => instance.terminal.options.cursorStyle = CONFIG.cursor ),
-        binds: ( property, value ) => console.log( 'bind', property, value ),
-        opacity: ( ) => setOpacity( CONFIG.opacity )
-    }, ( ) => {
-        localStorage.setItem( 'config', JSON.stringify( config ) );
-    } );
-
     // Default configuration
 
     const DEFAULT_SHELL = process.platform == 'win32' ? 'powershell.exe' : ( process.env.SHELL || ( process.platform == 'darwin' ? '/bin/zsh' : '/bin/bash' ) );
@@ -74,7 +65,8 @@
             instance: 'Shift+F10',
             kill: 'Control+Shift+F10',
             max: 'F11',
-            ghost: 'Meta+Control'
+            ghost: 'Meta+Control',
+            omnibox: 'Control+Shift+P'
         },
         bounding: {
             x: 0,
@@ -87,11 +79,28 @@
         presets: [ ]
     }
 
-    for( const key in DEFAULTS ) {
-        if( CONFIG[ key ] != null ) continue;
-        const value = DEFAULTS[ key ];
-        CONFIG[ key ] = value;
+    const correctConfig = ( object, defaults ) => {
+        for( const key in defaults ) {
+            if( typeof object[ key ] != typeof defaults[ key ] ) {
+                object[ key ] = defaults[ key ];
+                continue;
+            }
+            if( typeof object[ key ] == 'object' ) {
+                correctConfig( object[ key ], defaults[ key ] );
+            }
+        }
     }
+
+    correctConfig( config, DEFAULTS );
+
+    const CONFIG = changeListener( config, {
+        font: ( ) => eachInstance( instance => instance.setFont( CONFIG.font.family, CONFIG.font.size ) ),
+        cursor: ( ) => eachInstance( instance => instance.terminal.options.cursorStyle = CONFIG.cursor ),
+        binds: ( property, value ) => console.log( 'bind', property, value ),
+        opacity: ( ) => setOpacity( CONFIG.opacity )
+    }, ( ) => {
+        localStorage.setItem( 'config', JSON.stringify( config ) );
+    } );
 
     const UI = {
         container: $s( '.container' ),
@@ -107,6 +116,8 @@
             left: $s( '.boundary.left' ),
             right: $s( '.boundary.right' )
         },
+        omniboxWrapper: $s( '.omnibox-wrapper' ),
+        omnibox: $s( '.omnibox' ),
         boundaryActive: ( ) => $s( '.boundary.active' )
     }
 
@@ -148,6 +159,9 @@
 
     UI.modalWrapper.onclick = modalClose;
     UI.modal.onclick = event => event.stopPropagation( );
+    
+    UI.omniboxWrapper.onclick = ( ) => UI.omniboxWrapper.classList.remove( 'active' );
+    UI.omnibox.onclick = event => event.stopPropagation( );
 
     const sortable = new Sortable( UI.tabs, {
         animation: 150,
@@ -162,9 +176,17 @@
     }
 
     class Instance {
-        constructor( target ) {
+        constructor( mode, options ) {
             this.id = Date.now( );
-            this.title = 'Untitled';
+            this.mode = mode;
+            this.options = options;
+            this.title = this.mode;
+
+            this.mode ||= 'shell';
+            this.options ||= {
+                shell: CONFIG.shell,
+                cwd: CONFIG.startingDirectory
+            }
 
             // prepare elements
 
@@ -251,35 +273,17 @@
             const observer = new ResizeObserver( this.resize );
             observer.observe( this.wrapperElement );
 
-            // prepare target
-
-            let cwd = CONFIG.startingDirectory;
-            let file;
-
-            const exists = fs.existsSync( target );
-            if( exists ) {
-                const stat = fs.statSync( target );
-                const directory = stat.isDirectory( );
-
-                if( directory ) {
-                    cwd = target;
-                } else {
-                    file = target;
-                }
-            }
-
             // initialize
 
             instances[ this.id ] = this;
-            this.initialize( cwd, file );
+            this.initialize( );
             this.activate( );
         }
-        initialize = async ( cwd, file ) => {
+        initialize = async ( ) => {
             this.ipc = await send( 'instance', {
                 id: this.id,
-                shell: CONFIG.shell,
-                cwd,
-                file,
+                mode: this.mode,
+                options: this.options,
                 // callbacks
                 write: data => this.in( data ),
                 exit: reason => {
@@ -384,8 +388,19 @@
             return;
         }
 
-        if( event.key == 'Escape' && UI.modalWrapper.classList.contains( 'active' ) ) {
+        if( event.key == 'Escape' ) {
             modalClose( );
+            UI.omniboxWrapper.classList.remove( 'active' );
+            return;
+        }
+
+        const combination = keysDown.join( '+' );
+
+        // Omnibox
+        if( combination == CONFIG.binds.omnibox ) {
+            UI.omniboxWrapper.classList.toggle( 'active' );
+            UI.omnibox.value = '';
+            UI.omnibox.focus( );
             return;
         }
 
@@ -393,6 +408,25 @@
         if( keysDown.compare( [ 'Control', 'Shift', 'C' ] ) ) {
             copySelection( );
             return;
+        }
+    }
+
+    UI.omnibox.onkeyup = event => {
+        if( event.key != 'Enter' ) return;
+        UI.omniboxWrapper.classList.remove( 'active' );
+        activeInstance.terminal.focus( );
+
+        // EXPRESSION PARSING
+
+        const command = UI.omnibox.value;
+        const lowercase = command.toLowerCase( );
+        const [ root, ... args ] = lowercase.split( ' ' );
+
+        switch( root ) {
+            case 'ssh':
+                const [ host, username, password ] = args;
+                new Instance( 'ssh', { host, username, password } );
+                break;
         }
     }
 
@@ -662,7 +696,7 @@
             parent: kvStart,
             text: CONFIG.startingDirectory,
             onclick: async ( ) => {
-                const directory = await send( 'startingDirectory' );
+                const directory = await send( 'selectDirectory' );
                 if( !directory ) return;
                 CONFIG.startingDirectory = directory;
                 startingButton.innerText = directory;
@@ -702,6 +736,12 @@
             icon: '<i class="fa-solid fa-ghost"></i>'
         }, modal );
         renderBinder( 'ghost', kvGhost );
+
+        const kvOmnibox = KV( {
+            label: 'Show omnibox',
+            icon: '<i class="fa-solid fa-star"></i>'
+        }, modal );
+        renderBinder( 'omnibox', kvOmnibox );
     }
 
     for( const direction in UI.boundaries ) {
@@ -735,7 +775,25 @@
             activeInstance.terminal.focus( );
         },
         bounding: bounding => CONFIG.bounding = bounding,
-        instance: target => new Instance( target ),
+        instance: target => {
+            const options = {
+                cwd: CONFIG.startingDirectory,
+                file: undefined,
+                shell: CONFIG.shell
+            }
+            const exists = fs.existsSync( target );
+            if( exists ) {
+                const stat = fs.statSync( target );
+                const directory = stat.isDirectory( );
+
+                if( directory ) {
+                    this.options.cwd = target;
+                } else {
+                    this.options.file = target;
+                }
+            }
+            new Instance( 'shell', options );
+        },
         kill: ( ) => activeInstance.kill( )
     }, console.error );
 
@@ -743,7 +801,173 @@
         setOpacity( CONFIG.opacity );
 
         btn_preferences.onclick = preferences;
-        btn_instance.onclick = ( ) => new Instance( );
+        btn_instance.onclick = async ( ) => {
+            if( keysDown.includes( 'Shift' ) ) {
+                const modal = modalOpen( 'New instance' );
+
+                let mode = 'shell';
+                let options = { }
+
+                const kvMode = KV( {
+                    label: 'Mode',
+                    icon: '<i class="fa-solid fa-square-binary"></i>'
+                }, modal );
+
+                buildSelect( {
+                    options: {
+                        serial: 'Serial',
+                        shell: 'Shell',
+                        ssh: 'SSH'
+                    },
+                    callback: async selected => {
+                        mode = selected;
+                        optionsWrapper.innerHTML = null;
+                        switch( mode ) {
+                            case 'shell':
+                                options = {
+                                    cwd: CONFIG.startingDirectory,
+                                    file: '',
+                                    shell: CONFIG.shell
+                                }
+
+                                const kvShell = KV( {
+                                    label: 'Shell',
+                                    icon: '<i class="fa-solid fa-terminal"></i>'
+                                }, optionsWrapper );
+                                const shellInput = $n( {
+                                    tag: 'input',
+                                    parent: kvShell,
+                                    type: 'text',
+                                    value: options.shell,
+                                    onchange: ( ) => options.shell = shellInput.value
+                                } );
+
+                                const kvCwd = KV( {
+                                    label: 'Working directory',
+                                    icon: '<i class="fa-solid fa-folder"></i>'
+                                }, optionsWrapper );
+                                const cwdButton = $n( {
+                                    tag: 'button',
+                                    parent: kvCwd,
+                                    text: options.cwd,
+                                    onclick: async ( ) => {
+                                        const directory = await send( 'selectDirectory' );
+                                        if( !directory ) return;
+                                        options.cwd = directory;
+                                        cwdButton.innerText = directory;
+                                    }
+                                } );
+                                break;
+                            case 'ssh':
+                                options = {
+                                    host: '',
+                                    port: 22,
+                                    username: '',
+                                    password: ''
+                                }
+
+                                const kvHost = KV( {
+                                    label: 'Host',
+                                    icon: '<i class="fa-solid fa-server"></i>'
+                                }, optionsWrapper );
+                                const hostInput = $n( {
+                                    tag: 'input',
+                                    type: 'text',
+                                    parent: kvHost,
+                                    placeholder: 'localhost',
+                                    onchange: ( ) => options.host = hostInput.value
+                                } );
+
+                                const kvPort = KV( {
+                                    label: 'Port',
+                                    icon: '<i class="fa-solid fa-hashtag"></i>'
+                                }, optionsWrapper );
+                                const portInput = $n( {
+                                    tag: 'input',
+                                    type: 'number',
+                                    value: options.port,
+                                    parent: kvPort,
+                                    onchange: ( ) => options.port = portInput.value
+                                } );
+
+                                const kvUsername = KV( {
+                                    label: 'Username',
+                                    icon: '<i class="fa-solid fa-user"></i>'
+                                }, optionsWrapper );
+                                const usernameInput = $n( {
+                                    tag: 'input',
+                                    type: 'text',
+                                    parent: kvUsername,
+                                    placeholder: os.userInfo( ).username,
+                                    onchange: ( ) => options.username = usernameInput.value
+                                } );
+
+                                const kvPassword = KV( {
+                                    label: 'Password',
+                                    icon: '<i class="fa-solid fa-key"></i>'
+                                }, optionsWrapper );
+                                const passwordInput = $n( {
+                                    tag: 'input',
+                                    type: 'password',
+                                    parent: kvPassword,
+                                    placeholder: 'supersecretpassword',
+                                    onchange: ( ) => options.password = passwordInput.value
+                                } );
+                                break;
+                            case 'serial':
+                                options = {
+                                    path: '',
+                                    baudRate: 115200
+                                }
+                                const devices = await send( 'serialDevices' );
+                                const kvDevice = KV( {
+                                    label: 'Device',
+                                    icon: '<i class="fa-solid fa-plug"></i>'
+                                }, optionsWrapper );
+
+                                const deviceList = devices.map( device => device.path );
+                                options.path = deviceList[ 0 ];
+
+                                buildSelect( {
+                                    options: deviceList,
+                                    parent: kvDevice,
+                                    callback: path => options.path = path
+                                } );
+
+                                const kvBaudRate = KV( {
+                                    label: 'Baudrate',
+                                    icon: '<i class="fa-solid fa-clock-rotate-left"></i>'
+                                }, optionsWrapper );
+                                const baudrateInput = $n( {
+                                    tag: 'input',
+                                    type: 'number',
+                                    value: 115200,
+                                    parent: kvBaudRate,
+                                    onchange: ( ) => {
+                                        options.baudRate = baudrateInput.value;
+                                    }
+                                } );
+                                break;
+                        }
+                    },
+                    parent: kvMode
+                } );
+
+                const optionsWrapper = $qn( '.w.v', modal );
+
+                $n( {
+                    tag: 'button',
+                    parent: modal,
+                    text: 'Start instance',
+                    onclick: ( ) => {
+                        modalClose( );
+                        new Instance( mode, options );
+                    }
+                } );
+                return;
+            }
+            new Instance( );
+        }
 
         for( const bind in CONFIG.binds ) {
             send( 'bind', {

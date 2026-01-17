@@ -83,7 +83,7 @@ class IPC {
 	}
 
 	registerCallback = fn => {
-		const id = performance.now() + Math.random(); 
+		const id = performance.now( ) + Math.random( );
 		this.callbacks[ id ] = fn;
 		return id;
 	}
