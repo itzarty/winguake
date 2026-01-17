@@ -1,5 +1,9 @@
 # WinGuake 🖥️
 
+<p align="center">
+    <img src="https://i.imgur.com/s6MNcHM.gif" width="500" />
+</p>
+
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078d7.svg?style=flat-square&logo=windows)](https://github.com/)
 [![Electron](https://img.shields.io/badge/framework-Electron-47848F?style=flat-square&logo=electron)](https://www.electronjs.org/)
 [![Status: Beta](https://img.shields.io/badge/status-beta-orange?style=flat-square)]()
@@ -16,6 +20,10 @@ A drop-down terminal for Windows inspired by Guake. Built with Electron, Xterm.j
     *   **PATH Support:** Adds itself to your system PATH during installation.
     *   **Context Menu:** Right-click a **file** to run it in WinGuake or right-click a **directory** to open a new terminal instance in that location.
 
+<p align="center">
+    <img src="https://i.imgur.com/n3Z22ju.gif" width="500" />
+<p>
+
 ## 🛠️ Customization
 
 Customize your experience through the settings:
@@ -29,6 +37,11 @@ Customize your experience through the settings:
     *   Default Shell selection.
     *   Run on Startup.
     *   Starting Directory.
+
+<p align="center">
+    <img src="https://i.imgur.com/RY2gciR.gif" width="250" />
+    <img src="https://i.imgur.com/CC8PCi9.gif" width="250" />
+</p>
 
 ## ⌨️ Default Keybindings
 
@@ -44,7 +57,7 @@ Customize your experience through the settings:
 
 ## 📦 Installation
 
-1.  Download the latest `.exe` from the [Releases](https://github.com/) page.
+1.  Download the latest `.exe` from the [Releases](https://github.com/itzarty/winguake/releases) page.
 2.  Run the **NSIS Installer**.
 3.  (Optional) Check the "Add to Context Menu" and "Add to PATH" options during setup for the full experience.
 
