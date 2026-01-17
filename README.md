@@ -1,13 +1,13 @@
 # WinGuake 🖥️
 
-<p align="center">
-    <img src="https://i.imgur.com/s6MNcHM.gif" width="500" />
-</p>
-
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078d7.svg?style=flat-square&logo=windows)](https://github.com/)
 [![Electron](https://img.shields.io/badge/framework-Electron-47848F?style=flat-square&logo=electron)](https://www.electronjs.org/)
 [![Status: Beta](https://img.shields.io/badge/status-beta-orange?style=flat-square)]()
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg?style=flat-square)](LICENSE)
+
+<p align="center">
+    <img src="https://i.imgur.com/s6MNcHM.gif" width="500" />
+</p>
 
 A drop-down terminal for Windows inspired by Guake. Built with Electron, Xterm.js, and `node-pty`, WinGuake aims to provide a seamless terminal experience that stays out of your way until you need it.
 
