@@ -7,8 +7,6 @@
 
 A drop-down terminal for Windows inspired by Guake. Built with Electron, Xterm.js, and `node-pty`, WinGuake aims to provide a seamless terminal experience that stays out of your way until you need it.
 
-![Preview Placeholder](https://via.placeholder.com/800x450.png?text=WinGuake+Interface+Preview)
-
 ## 🚀 Key Features
 
 *   **Relative Positioning:** Unlike standard fixed-width terminals, WinGuake offers full position and size adjustments that scale **relatively** to your screen size.
