@@ -20,6 +20,10 @@ A drop-down terminal for Windows inspired by Guake. Built with Electron, Xterm.j
     *   **PATH Support:** Adds itself to your system PATH during installation.
     *   **Context Menu:** Right-click a **file** to run it in WinGuake or right-click a **directory** to open a new terminal instance in that location.
 
+<p align="center">
+    <img src="https://s5.ezgif.com/tmp/ezgif-52f096d6eae3097b.gif" width="500" />
+</p>
+
 ## 🛠️ Customization
 
 Customize your experience through the settings:
