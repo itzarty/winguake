@@ -1,6 +1,6 @@
 {
   "name": "winguake",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Guake-inspired terminal emulator using Electron.js",
   "license": "ISC",
   "author": "Arty",
@@ -11,6 +11,7 @@
     "start": "electron ."
   },
   "dependencies": {
+    "@itzarty_/persisto": "^1.0.1",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "auto-launch": "^5.0.6",

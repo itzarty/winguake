@@ -1,4 +1,3 @@
-let cfg;
 ( async ( ) => {
 
     const { Terminal } = require( '@xterm/xterm' );
@@ -11,11 +10,51 @@ let cfg;
 
     const IPC = require( './ipc.js' );
 
+    if( !localStorage.config ) localStorage.config = '{}';
+
     // localStorage proxy
 
-    const CONFIG = new Proxy( { ... localStorage }, {
-        set: ( object, property, value ) => localStorage.setItem( property, value ),
-        get: ( target, property, receiver ) => localStorage.getItem( property )
+    const changeListener = ( object, callbackMap, globalCallback, chain = [ ] ) => {
+        if( !( object instanceof Object ) ) return object;
+
+        for( const key in object ) {
+            const value = object[ key ];
+            const hook = callbackMap[ key ];
+            if( !hook ) continue;
+
+            object[ key ] = changeListener( value, hook, globalCallback, [ ... chain, key ] );
+        }
+
+        return new Proxy( object, {
+            set: ( target, property, value ) => {
+                target[ property ] = value;
+
+                if( globalCallback ) globalCallback( chain, property, value );
+
+                if( typeof callbackMap == 'function' ) {
+                    callbackMap( );
+                    return true;
+                }
+
+                const callback = callbackMap[ property ];
+                if( typeof callback == 'function' ) {
+                    callback( property, value );
+                    return true;
+                }
+                return true;
+            }
+        } );
+    }
+
+    const config = JSON.parse( localStorage.getItem( 'config' ) );
+
+    const CONFIG = changeListener( config, {
+        font: ( ) => eachInstance( instance => instance.setFont( CONFIG.font.family, CONFIG.font.size ) ),
+        cursor: ( ) => eachInstance( instance => instance.terminal.options.cursorStyle = CONFIG.cursor ),
+        binds: ( property, value ) => console.log( 'bind', property, value ),
+        opacity: ( ) => setOpacity( CONFIG.opacity )
+    }, ( ) => {
+        localStorage.setItem( 'config', JSON.stringify( config ) );
     } );
 
     // Default configuration
@@ -23,24 +62,33 @@ let cfg;
     const DEFAULT_SHELL = process.platform == 'win32' ? 'powershell.exe' : ( process.env.SHELL || ( process.platform == 'darwin' ? '/bin/zsh' : '/bin/bash' ) );
 
     const DEFAULTS = {
-        fontSize: 14,
-        fontFamily: 'Consolas, monospace',
+        version: 1,
+        font: {
+            size: 14,
+            family: 'Consolas'
+        },
         cursor: 'block',
         shell: DEFAULT_SHELL,
-        bindToggle: 'F10',
-        bindInstance: 'Shift+F10',
-        bindKill: 'Control+Shift+F10',
-        bindMax: 'F11',
-        boundingX: 0,
-        boundingY: 0,
-        boundingWidth: 1,
-        boundingHeight: 0.4,
+        binds: {
+            toggle: 'F10',
+            instance: 'Shift+F10',
+            kill: 'Control+Shift+F10',
+            max: 'F11',
+            ghost: 'Meta+Control'
+        },
+        bounding: {
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 0.4
+        },
         startingDirectory: os.homedir( ),
-        bindGhost: 'Meta+Control'
+        opacity: 0.75,
+        presets: [ ]
     }
 
     for( const key in DEFAULTS ) {
-        if( typeof CONFIG[ key ] != null ) continue;
+        if( CONFIG[ key ] != null ) continue;
         const value = DEFAULTS[ key ];
         CONFIG[ key ] = value;
     }
@@ -62,20 +110,29 @@ let cfg;
         boundaryActive: ( ) => $s( '.boundary.active' )
     }
 
-    // transparency transcoding (xterm.js no longer supports this)
-    const mutationObserver = new MutationObserver( mutations => {
-        for( const mutation of mutations ) {
-            const target = mutation.target;
-            if( !target.parentElement?.classList.contains( 'xterm-rows' ) ) continue;
-            const background = window.getComputedStyle( target ).backgroundColor;
-            const [ r, g, b ] = background.slice( 5, -1 ).split( ', ' );
-            if( r - g - b == 0 ) continue;
-            // add transparency
-            const translucent = `rgba(${ r }, ${ g }, ${ b }, 0.75)`;
-            target.style.backgroundColor = translucent;
+    // XTerm.js opacity injection
 
+    const opacityOverride = $qn( 'style', document.head );
+    const setOpacity = opacity => opacityOverride.innerText = `:root { --oOpacity: ${ opacity } }`;
+
+    const styleOverride = $qn( 'style', document.head );
+    const overrideStyle = terminal => {
+        styleOverride.innerText = null;
+        const ownerElement = terminal.element;
+
+        for( let i = 0; i < 259; i++ ) { // for some reason
+            const override = '.xterm-bg-' + i;
+            const element = $qn( override, ownerElement );
+
+            const computedStyles = element.computedStyleMap( );
+            const computedBackground = computedStyles.get( 'background-color' ).toString( );
+            const altered = computedBackground.slice( 0, -1 ) + ', var(--oOpacity))';
+
+            styleOverride.innerText += override + ` { background-color: ${ altered } !important; }`;
         }
-    } );
+    }
+
+    //
 
     const modalOpen = title => {
         UI.modalTitle.innerText = title;
@@ -99,6 +156,10 @@ let cfg;
 
     const instances = { };
     let activeInstance;
+
+    const eachInstance = callback => {
+        for( const id in instances ) callback( instances[ id ] );
+    }
 
     class Instance {
         constructor( target ) {
@@ -160,16 +221,9 @@ let cfg;
 
             this.terminal = new Terminal( {
                 cursorBlink: true,
-                fontFamily: CONFIG.font,
+                fontFamily: CONFIG.font.family,
                 cursorStyle: CONFIG.cursor,
-                fontSize: CONFIG.fontSize
-            } );
-
-            // custom handlers
-
-            this.terminal.parser.registerOscHandler( 9, data => {
-                console.log( data );
-                return true;
+                fontSize: CONFIG.font.size
             } );
 
             // addons
@@ -182,6 +236,10 @@ let cfg;
 
             this.terminal.open( this.wrapperElement );
 
+            // transparency injection
+
+            overrideStyle( this.terminal );
+
             // events
 
             this.terminal.onData( this.out );
@@ -192,13 +250,6 @@ let cfg;
 
             const observer = new ResizeObserver( this.resize );
             observer.observe( this.wrapperElement );
-
-            mutationObserver.observe( this.wrapperElement, {
-                attributes: true,
-                childList: true,
-                characterData: true,
-                subtree: true
-            } );
 
             // prepare target
 
@@ -303,6 +354,7 @@ let cfg;
             delete instances[ this.id ];
 
             const dInstances = Object.values( instances );
+            for( const instance of dInstances ) instance.changeTitle( instance.title );
             if( dInstances.length == 0 ) {
                 new Instance( );
                 return;
@@ -312,8 +364,6 @@ let cfg;
         }
         kill = ( ) => this.ipc.kill( )
     }
-
-    btn_instance.onclick = ( ) => new Instance( );
 
     const copySelection = ( ) => {
         const selection = activeInstance?.terminal.getSelection( );
@@ -333,7 +383,7 @@ let cfg;
             return;
         }
 
-        if( event.key == 'Escape' && modalWrapper.classList.contains( 'active' ) ) {
+        if( event.key == 'Escape' && UI.modalWrapper.classList.contains( 'active' ) ) {
             modalClose( );
             return;
         }
@@ -349,7 +399,7 @@ let cfg;
         const index = keysDown.indexOf( event.key );
         if( index != -1 ) keysDown.splice( index, 1 );
 
-        if( event.key == CONFIG.bindMax ) {
+        if( event.key == CONFIG.binds.max ) {
             event.preventDefault( );
             send( 'toggleMax' );
             return;
@@ -436,7 +486,7 @@ let cfg;
             onclick: ( ) => {
                 getKeyCombination( ).then( combination => {
                     const translated = combination.join( '+' );
-                    CONFIG[ item ] = translated;
+                    CONFIG.binds[ item ] = translated;
                     send( 'bind', {
                         name: bind,
                         combination: translated
@@ -451,11 +501,6 @@ let cfg;
         fonts: [ ],
         updated: 0
     }
-
-    getFonts( ).then( fonts => {
-        fontCache.fonts = fonts;
-        fontCache.updated = Date.now( );
-    } );
 
     const Fonts = async ( ) => {
         const stamp = Date.now( );
@@ -510,7 +555,7 @@ let cfg;
         }, modal );
 
         const fonts = await Fonts( );
-        const currentFont = fonts.indexOf( CONFIG.font );
+        const currentFont = fonts.indexOf( CONFIG.font.family );
 
         buildSelect( {
             options: fonts,
@@ -518,9 +563,7 @@ let cfg;
             selected: currentFont,
             callback: option => {
                 const font = fonts[ option ];
-                CONFIG.font = font;
-
-                for( const id in instances ) instances[ id ].setFont( font );
+                CONFIG.font.family = font;
             }
         } );
 
@@ -536,14 +579,30 @@ let cfg;
             type: 'number',
             min: 8,
             max: 64,
-            value: CONFIG.fontSize,
+            value: CONFIG.font.size,
             parent: kvSize,
-            onchange: event => {
+            onchange: ( ) => {
                 const size = fontSizeInput.value;
-                CONFIG.fontSize = fontSizeInput.value;
+                CONFIG.font.size = fontSizeInput.value;
+            }
+        } );
 
-                const font = CONFIG.font;
-                for( const id in instances ) instances[ id ].setFont( font, size );
+        const kvOpacity = KV( {
+            label: 'Terminal opacity',
+            icon: '<i class="fa-solid fa-circle-half-stroke"></i>'
+        }, modal );
+
+        const opacityInput = $n( {
+            tag: 'input',
+            type: 'range',
+            min: 0,
+            max: 1,
+            step: 0.01,
+            value: CONFIG.opacity,
+            parent: kvOpacity,
+            oninput: ( ) => {
+                const opacity = opacityInput.value;
+                CONFIG.opacity = opacity;
             }
         } );
 
@@ -645,47 +704,12 @@ let cfg;
         renderBinder( 'ghost', kvGhost );
     }
 
-    btn_preferences.onclick = preferences;
-
-    window.onload = async ( ) => {
-        console.log( '?????' );
-        send( 'bind', {
-            name: 'toggle',
-            combination: CONFIG.bindToggle
-        } );
-        send( 'bind', {
-            name: 'instance',
-            combination: CONFIG.bindInstance
-        } );
-        send( 'bind', {
-            name: 'kill',
-            combination: CONFIG.bindKill
-        } );
-        send( 'bind', {
-            name: 'ghost',
-            combination: CONFIG.bindGhost
-        } );
-
-        const bounding = {
-            x: CONFIG.boundingX,
-            y: CONFIG.boundingY,
-            width: CONFIG.boundingWidth,
-            height: CONFIG.boundingHeight
-        }
-
-        send( 'bounding', bounding );
-
-        const target = process.argv.at( -1 );
-        new Instance( );
-    }
-
     for( const direction in UI.boundaries ) {
         const element = UI.boundaries[ direction ];
         element.onmousedown = event => {
             event.preventDefault( );
             event.stopPropagation( );
 
-            resizing = true;
             send( 'resizeWindow', {
                 state: true,
                 direction
@@ -694,8 +718,7 @@ let cfg;
         }
     }
 
-    window.onmouseup = event => {
-        resizing = false;
+    window.onmouseup = ( ) => {
         send( 'resizeWindow', {
             state: false
         } );
@@ -711,14 +734,31 @@ let cfg;
             UI.container.classList.remove( 'ghost' );
             activeInstance.terminal.focus( );
         },
-        bounding: ( { x, y, width, height } ) => {
-            CONFIG.boundingX = x;
-            CONFIG.boundingY = y;
-            CONFIG.boundingWidth = width;
-            CONFIG.boundingHeight = height;
-        },
+        bounding: bounding => CONFIG.bounding = bounding,
         instance: target => new Instance( target ),
         kill: ( ) => activeInstance.kill( )
     }, console.error );
+
+    const initialize = async ( ) => {
+        setOpacity( CONFIG.opacity );
+
+        btn_preferences.onclick = preferences;
+        btn_instance.onclick = ( ) => new Instance( );
+
+        for( const bind in CONFIG.binds ) {
+            send( 'bind', {
+                name: bind,
+                combination: CONFIG.binds[ bind ]
+            } )
+        }
+
+        send( 'bounding', CONFIG.bounding );
+
+        new Instance( );
+
+        await Fonts( ); // prevent delayed loads
+    }
+
+    initialize( );
 
 } )( );

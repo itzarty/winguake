@@ -5,7 +5,6 @@ Electron.js based utility aimed at replicating [Guake](https://guake.github.io/)
 # TODO
 
 * Customization
-    * Scripts
     * Presets
     * Themes and layouts
     * More in-depth configuration & options

@@ -8,7 +8,6 @@
         shell,
         Tray,
         Menu,
-        Notification,
         nativeImage,
         dialog
     } = require( 'electron' );
@@ -92,6 +91,7 @@
         window.setSize( Math.floor( width * multipliers.width ), Math.floor( height * multipliers.height ) );
 
         window.show( );
+        window.focus( );
     }
 
     const toggle = ( ) => {
@@ -260,6 +260,7 @@
         },
         bell: shell.beep,
         bind: ( { name, combination } ) => {
+            if( !binds[ name ] ) return;
             binds[ name ].combination = combination.replaceAll( 'Control', 'Ctrl' ).split( '+' ).map( str => UiohookKey[ str ] );
         },
         autoLaunch: async ( _, answer ) => {

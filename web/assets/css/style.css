@@ -233,7 +233,7 @@ span.separator {
     text-align: right;
     color: #999999;
     transition: 0.15s;
-    padding: 0px 1rem;
+    margin: 0px 1rem;
 }
 .kv > .v > input:focus {
     color: #ffffff;

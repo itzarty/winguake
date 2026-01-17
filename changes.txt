@@ -1,8 +1,8 @@
-* redesigned modals and the preference menu
-* cleaned the code up a bit
-* reworked config access
-* added font cache
-* dropped `globalShortcut` in favour of `uIOhook`
-* reworked keybinding backend
-* patched resizing (typo)
-* dropped unused code
+* reworked terminal background opacity
+* added an option to adjust terminal background opacity
+* removed unused listeners
+* readjust titles on instance destruction
+* reworked frontend initialization
+* fixed modal escaping
+* reworked config management
+* fixed focus on toggle
