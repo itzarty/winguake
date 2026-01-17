@@ -1,8 +1,2 @@
-* reworked terminal background opacity
-* added an option to adjust terminal background opacity
-* removed unused listeners
-* readjust titles on instance destruction
-* reworked frontend initialization
-* fixed modal escaping
-* reworked config management
-* fixed focus on toggle
+* fixed starting directory
+* fixed autoLaunch on production

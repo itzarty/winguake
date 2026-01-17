@@ -101,6 +101,8 @@
         }
         show( );
     }
+    
+    let autoLaunch;
 
     if( app.isPackaged ) {
         autoLaunch = new AutoLaunch( {
@@ -179,8 +181,6 @@
         }
         return true;
     }
-
-    let autoLaunch;
 
     const binds = {
         kill: {

@@ -254,6 +254,7 @@
             // prepare target
 
             let cwd = CONFIG.startingDirectory;
+            let file;
 
             const exists = fs.existsSync( target );
             if( exists ) {
@@ -270,7 +271,7 @@
             // initialize
 
             instances[ this.id ] = this;
-            this.initialize( );
+            this.initialize( cwd, file );
             this.activate( );
         }
         initialize = async ( cwd, file ) => {
