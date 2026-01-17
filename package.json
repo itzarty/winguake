@@ -37,6 +37,7 @@
     "files": [
       "**/*",
       "!dist/**",
+      "!dev/**",
       "!README.md",
       "!.git/**",
       "!package-lock.json"
