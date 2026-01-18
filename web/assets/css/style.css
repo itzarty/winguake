@@ -450,3 +450,40 @@ button:hover {
     border: 2px solid rgba( 175, 175, 175, 0.25 );
     font-family: FiraCode;
 }
+
+.searchbox {
+    position: absolute;
+    right: 1rem;
+    top: 3rem;
+    z-index: 1000;
+    pointer-events: none;
+    opacity: 0;
+    transition: 0.15s;
+
+    display: flex;
+    outline: none;
+    padding: 0.25rem 0.5rem;
+    background-color: rgba( 125, 125, 125, 0.25 );
+    color: #ffffff;
+    border-radius: var(--radius);
+    border: 2px solid rgba( 175, 175, 175, 0.25 );
+    font-family: FiraCode;
+}
+.searchbox.active {
+    opacity: 1;
+}
+
+.tooltip {
+    position: fixed;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 1000;
+    padding: 0.25rem 0.5rem;
+    background-color: rgba( 0, 0, 0, 0.75 );
+    color: #ffffff;
+    border-radius: var(--radius);
+    margin-top: 0.5rem;
+}
+.tooltip.active {
+    opacity: 1;
+}

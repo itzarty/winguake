@@ -30,6 +30,11 @@
 		return;
 	}
 
+    const info = {
+        version: app.getVersion( ),
+        release: app.isPackaged
+    }
+
     const window = new BrowserWindow( {
         webPreferences: {
             contextIsolation: false,
@@ -95,8 +100,9 @@
         window.setSize( Math.floor( width * multipliers.width ), Math.floor( height * multipliers.height ) );
 
         window.show( );
-        window.focus( );
     }
+
+    window.on( 'show', ( ) => window.focus( ) );
 
     const toggle = ( ) => {
         if( window.isVisible( ) ) {
@@ -108,7 +114,7 @@
     
     let autoLaunch;
 
-    if( app.isPackaged ) {
+    if( info.release ) {
         autoLaunch = new AutoLaunch( {
             name: 'WinGuake',
             path: app.getPath( 'exe' )
@@ -214,27 +220,28 @@
         devTools: {
             combination: [ UiohookKey.F6 ],
             up: ( ) => {
-                if( !app.isPackaged )
+                if( !info.release )
                 window.toggleDevTools( )
             }
         },
         reload: {
             combination: [ UiohookKey.F5 ],
             up: ( ) => {
-                if( !app.isPackaged )
+                if( !info.release )
                 window.reload( )
             }
         }
     }
 
     const { send } = new IPC( ipcMain, window.webContents, {
+        initialize: async ( _, answer ) => answer( null, info ),
         bounding: boundings => multipliers = boundings,
         selectDirectory: async ( _, answer ) => {
             const result = await dialog.showOpenDialog( {
                 properties: [ 'openDirectory' ]
             } );
             const [ directory ] = result.filePaths;
-            answer( false, directory );
+            answer( null, directory );
         },
         resizeWindow: ( { state, direction } ) => {
             resizeEnable = state;
@@ -262,7 +269,7 @@
                 instance.resize( cols, rows );
             }
         },
-        bell: shell.beep,
+        bell: ( ) => process.stdout.write( '\u0007' ),
         bind: ( { name, combination } ) => {
             if( !binds[ name ] ) return;
             binds[ name ].combination = combination.replaceAll( 'Control', 'Ctrl' ).split( '+' ).map( str => UiohookKey[ str ] );
@@ -380,7 +387,7 @@
                         } );
                     } ).connect( options );
 
-                    connection.on( 'end', ( ) => {
+                    connection.on( 'close', ( ) => {
                         delete instances[ id ];
                         exit( );
                     } );
@@ -392,8 +399,13 @@
                 }
                 case 'telnet': {
                     const connection = new Telnet( );
-                    await connection.connect( options );
-                    connection.on( 'data', write );
+                    connection.connect( options ).then( ( ) => {
+                        connection.on( 'data', write );
+
+                        connection.on( 'error', ( ) => console.error( 'Couldnt connect' ) );
+                    } ).catch( error => {
+                        exit( 'An error occured' );
+                    } );
 
                     answer( true, {
                         write: data => connection.send( data ),

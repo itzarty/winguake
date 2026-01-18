@@ -1,14 +1,17 @@
 ( async ( ) => {
 
+    const os = require( 'os' );
+    const fs = require( 'fs' );
+    const IPC = require( './ipc.js' );
+    const { getFonts } = require( 'font-list' );
+
     const { Terminal } = require( '@xterm/xterm' );
     const { FitAddon } = require( '@xterm/addon-fit' );
+    const { WebglAddon } = require( '@xterm/addon-webgl' );
+    const { SearchAddon } = require( '@xterm/addon-search' );
     const { WebLinksAddon } = require( 'xterm-addon-web-links' );
-    const { ipcRenderer, clipboard, shell } = require( 'electron' );
-    const { getFonts } = require( 'font-list' );
-    const fs = require( 'fs' );
-    const os = require( 'os' );
 
-    const IPC = require( './ipc.js' );
+    const { ipcRenderer, clipboard, shell } = require( 'electron' );
 
     if( !localStorage.config ) localStorage.config = '{}';
 
@@ -66,7 +69,9 @@
             kill: 'Control+Shift+F10',
             max: 'F11',
             ghost: 'Meta+Control',
-            omnibox: 'Control+Shift+P'
+            omnibox: 'Control+Shift+P',
+            search: 'Control+Shift+F',
+            copy: 'Control+Shift+C'
         },
         bounding: {
             x: 0,
@@ -76,7 +81,8 @@
         },
         startingDirectory: os.homedir( ),
         opacity: 0.75,
-        presets: [ ]
+        presets: [ ],
+        webgl: false
     }
 
     const correctConfig = ( object, defaults ) => {
@@ -96,7 +102,6 @@
     const CONFIG = changeListener( config, {
         font: ( ) => eachInstance( instance => instance.setFont( CONFIG.font.family, CONFIG.font.size ) ),
         cursor: ( ) => eachInstance( instance => instance.terminal.options.cursorStyle = CONFIG.cursor ),
-        binds: ( property, value ) => console.log( 'bind', property, value ),
         opacity: ( ) => setOpacity( CONFIG.opacity )
     }, ( ) => {
         localStorage.setItem( 'config', JSON.stringify( config ) );
@@ -118,6 +123,8 @@
         },
         omniboxWrapper: $s( '.omnibox-wrapper' ),
         omnibox: $s( '.omnibox' ),
+        tooltip: $s( '.tooltip' ),
+        searchbox: $s( '.searchbox' ),
         boundaryActive: ( ) => $s( '.boundary.active' )
     }
 
@@ -139,8 +146,21 @@
             const computedBackground = computedStyles.get( 'background-color' ).toString( );
             const altered = computedBackground.slice( 0, -1 ) + ', var(--oOpacity))';
 
+            element.remove( );
+
             styleOverride.innerText += override + ` { background-color: ${ altered } !important; }`;
         }
+
+        const overrideWrapper = $qn( '.xterm-selection', ownerElement );
+        const element = $qn( 'div', overrideWrapper );
+
+        const computedStyles = element.computedStyleMap( );
+        const computedBackground = computedStyles.get( 'background-color' ).toString( );
+        const altered = computedBackground.slice( 0, -1 ) + ', var(--oOpacity))';
+
+        element.remove( );
+
+        styleOverride.innerText += `.xterm-selection div { background-color: ${ altered } !important; }`;
     }
 
     //
@@ -256,11 +276,25 @@
             this.webLinksAddon = new WebLinksAddon( ( _, uri ) => this.linkHandler( uri ) );
             this.terminal.loadAddon( this.webLinksAddon );
 
+            if( CONFIG.webgl ) {
+                this.webglAddon = new WebglAddon( );
+                this.webglAddon.onContextLoss( ( ) => {
+                    this.webglAddon.dispose( );
+                } );
+
+                this.terminal.loadAddon( this.webglAddon );
+            }
+
+            this.searchAddon = new SearchAddon( );
+            this.terminal.loadAddon( this.searchAddon );
+
             this.terminal.open( this.wrapperElement );
 
-            // transparency injection
+            // transparency injection (not supported with webgl)
 
-            overrideStyle( this.terminal );
+            if( !CONFIG.webgl ) {
+                overrideStyle( this.terminal );
+            }
 
             // events
 
@@ -370,13 +404,6 @@
         kill = ( ) => this.ipc.kill( )
     }
 
-    const copySelection = ( ) => {
-        const selection = activeInstance?.terminal.getSelection( );
-        if( !selection ) return;
-
-        clipboard.writeText( selection );
-    }
-
     const keysDown = [ ];
     let comboListener;
 
@@ -391,6 +418,7 @@
         if( event.key == 'Escape' ) {
             modalClose( );
             UI.omniboxWrapper.classList.remove( 'active' );
+            UI.searchbox.classList.remove( 'active' );
             return;
         }
 
@@ -404,29 +432,36 @@
             return;
         }
 
-        // Copy to clipboard
-        if( keysDown.compare( [ 'Control', 'Shift', 'C' ] ) ) {
-            copySelection( );
+        // Search
+        if( combination == CONFIG.binds.search ) {
+            UI.searchbox.classList.toggle( 'active' );
+            UI.searchbox.value = '';
+            UI.searchbox.focus( );
             return;
         }
-    }
 
-    UI.omnibox.onkeyup = event => {
-        if( event.key != 'Enter' ) return;
-        UI.omniboxWrapper.classList.remove( 'active' );
-        activeInstance.terminal.focus( );
+        // Search handling
+        if( UI.searchbox == document.activeElement ) {
+            const text = UI.searchbox.value;
+            if( combination == 'Shift+Enter' ) {
+                event.preventDefault( );
+                activeInstance.searchAddon.findPrevious( text );
+                return;
+            }
+            if( combination == 'Enter' ) {
+                event.preventDefault( );
+                activeInstance.searchAddon.findNext( text );
+                return;
+            }
+        }
 
-        // EXPRESSION PARSING
+        // Copy to clipboard
+        if( combination == CONFIG.binds.copy ) {
+            const selection = activeInstance?.terminal.getSelection( );
+            if( !selection ) return;
 
-        const command = UI.omnibox.value;
-        const lowercase = command.toLowerCase( );
-        const [ root, ... args ] = lowercase.split( ' ' );
-
-        switch( root ) {
-            case 'ssh':
-                const [ host, username, password ] = args;
-                new Instance( 'ssh', { host, username, password } );
-                break;
+            clipboard.writeText( selection );
+            return;
         }
     }
 
@@ -434,7 +469,36 @@
         const index = keysDown.indexOf( event.key );
         if( index != -1 ) keysDown.splice( index, 1 );
 
-        if( event.key == CONFIG.binds.max ) {
+        const combination = keysDown.join( '+' );
+
+        // Search handling
+        if( UI.searchbox == document.activeElement ) {
+            if( event.key.length != 1 ) return;
+            const text = UI.searchbox.value;
+            activeInstance.searchAddon.findNext( text );
+        }
+
+        // Omnibox handling
+        if( UI.omnibox == document.activeElement ) {
+            if( event.key != 'Enter' ) return;
+            UI.omniboxWrapper.classList.remove( 'active' );
+            activeInstance.terminal.focus( );
+
+            // EXPRESSION PARSING
+
+            const command = UI.omnibox.value;
+            const lowercase = command.toLowerCase( );
+            const [ root, ... args ] = lowercase.split( ' ' );
+
+            switch( root ) {
+                case 'ssh':
+                    const [ host, username, password ] = args;
+                    new Instance( 'ssh', { host, username, password } );
+                    break;
+            }
+        }
+
+        if( combination == CONFIG.binds.max ) {
             event.preventDefault( );
             send( 'toggleMax' );
             return;
@@ -703,6 +767,23 @@
             }
         } );
 
+        // Hardware rendering
+
+        const kvWebgl = KV( {
+            label: 'Accelerated terminal rendering',
+            icon: '<i class="fa-solid fa-folder"></i>'
+        }, modal );
+
+        const webglSwitch = $n( {
+            tag: 'input',
+            type: 'checkbox',
+            parent: kvWebgl,
+            checked: CONFIG.webgl,
+            onclick: async ( ) => {
+                CONFIG.webgl = webglSwitch.checked;
+            }
+        } );
+
         $qn( 'span.separator', modal, 'Keyboard shortcuts' );
 
         // Binds
@@ -737,11 +818,26 @@
         }, modal );
         renderBinder( 'ghost', kvGhost );
 
+        const kvSearch = KV( {
+            label: 'Search terminal',
+            icon: '<i class="fa-solid fa-magnifying-glass"></i>'
+        }, modal );
+        renderBinder( 'search', kvSearch );
+
+        const kvCopy = KV( {
+            label: 'Copy from terminal',
+            icon: '<i class="fa-solid fa-copy"></i>'
+        }, modal );
+        renderBinder( 'copy', kvCopy );
+
         const kvOmnibox = KV( {
             label: 'Show omnibox',
             icon: '<i class="fa-solid fa-star"></i>'
         }, modal );
         renderBinder( 'omnibox', kvOmnibox );
+
+        // Info
+        $qn( 'span.separator', modal, `WinGuake v${ info.version } (${ info.release ? 'Release' : 'Debug' })` );
     }
 
     for( const direction in UI.boundaries ) {
@@ -797,7 +893,12 @@
         kill: ( ) => activeInstance.kill( )
     }, console.error );
 
+    window.onfocus = ( ) => activeInstance.terminal.focus( );
+
+    let info;
     const initialize = async ( ) => {
+        info = await send( 'initialize' );
+
         setOpacity( CONFIG.opacity );
 
         btn_preferences.onclick = preferences;
@@ -817,7 +918,8 @@
                     options: {
                         serial: 'Serial',
                         shell: 'Shell',
-                        ssh: 'SSH'
+                        ssh: 'SSH',
+                        telnet: 'Telnet'
                     },
                     callback: async selected => {
                         mode = selected;
@@ -858,7 +960,7 @@
                                     }
                                 } );
                                 break;
-                            case 'ssh':
+                            case 'ssh': {
                                 options = {
                                     host: '',
                                     port: 22,
@@ -914,6 +1016,7 @@
                                     onchange: ( ) => options.password = passwordInput.value
                                 } );
                                 break;
+                            }
                             case 'serial':
                                 options = {
                                     path: '',
@@ -948,6 +1051,37 @@
                                     }
                                 } );
                                 break;
+                            case 'telnet': {
+                                options = {
+                                    host: '',
+                                    port: 23
+                                }
+
+                                const kvHost = KV( {
+                                    label: 'Host',
+                                    icon: '<i class="fa-solid fa-server"></i>'
+                                }, optionsWrapper );
+                                const hostInput = $n( {
+                                    tag: 'input',
+                                    type: 'text',
+                                    parent: kvHost,
+                                    placeholder: 'localhost',
+                                    onchange: ( ) => options.host = hostInput.value
+                                } );
+
+                                const kvPort = KV( {
+                                    label: 'Port',
+                                    icon: '<i class="fa-solid fa-hashtag"></i>'
+                                }, optionsWrapper );
+                                const portInput = $n( {
+                                    tag: 'input',
+                                    type: 'number',
+                                    value: options.port,
+                                    parent: kvPort,
+                                    onchange: ( ) => options.port = portInput.value
+                                } );
+                                break;
+                            }
                         }
                     },
                     parent: kvMode

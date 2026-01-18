@@ -1,8 +1,4 @@
-* added omnibox
-* reworked interfacing
-* added multiprotocol support
-    * ssh 
-    * telnet
-    * serial communication
-    * NOTE: all of the above are quite unreliable for now
-* fixed config indexing
+* added terminal search
+* added hardware acceleration support
+* fixed focus on show
+* completed experimental telnet implementation
