@@ -3,7 +3,7 @@
   "version": "1.4.0",
   "description": "Guake-inspired terminal emulator using Electron.js",
   "license": "ISC",
-  "author": "Arty",
+  "author": "Arty <arty@itzarty.eu> (https://www.itzarty.eu)",
   "type": "commonjs",
   "main": "main.js",
   "scripts": {
