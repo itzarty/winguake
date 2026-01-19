@@ -64,8 +64,8 @@ Customize your experience through the settings:
 ## 🗺️ Roadmap
 
 - [x] Full Windows Support
-- [ ] Linux Support (Coming Soon)
-- [ ] Theme/Color Palette Support
+- [x] Linux Support
+- [x] Theme/Color Palette Support
 - [ ] Presets
 - [ ] Advanced configuration
 - [ ] Layouts and themes

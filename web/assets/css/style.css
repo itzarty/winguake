@@ -1,6 +1,6 @@
 @font-face {
-    font-family: FiraCode;
-    src: url(../webfonts/FiraCode.ttf);
+    font-family: UIFont;
+    src: url(../webfonts/Ubuntu.ttf);
 }
 :root {
     --toolbarHeight: 2.5rem;
@@ -18,7 +18,7 @@ body {
     display: flex;
     flex-direction: column;
     user-select: none;
-    font-family: FiraCode;
+    font-family: UIFont;
 }
 * {
     box-sizing: border-box;
@@ -100,6 +100,8 @@ body {
     animation: tabIn linear 0.15s 1;
     transform-origin: left;
     grid-gap: var(--spacing);
+    font-size: 0.85rem;
+    color: #cccccc;
 }
 .tab:hover {
     background-color: rgba( 25, 25, 25, 0.5 );
@@ -108,6 +110,7 @@ body {
 .tab.active {
     background-color: rgba( 50, 50, 50, 0.5 );
     cursor: default;
+    color: #ffffff;
 }
 .tab.ghost {
     animation: none;
@@ -116,6 +119,22 @@ body {
     position: relative;
     outline: none
 }
+.tab > .close {
+    display: flex;
+    color: #999999;
+    transition: 0.15s;
+    font-size: 0px;
+    margin-left: -0.25rem;
+}
+.tab:hover > .close {
+    margin-left: 0px;
+    font-size: 0.65rem;
+}
+.tab > .close:hover {
+    color: #ffffff;
+    cursor: pointer;
+}
+
 .button {
     display: flex;
     transition: 0.15s;
@@ -146,7 +165,7 @@ body {
     opacity: 0;
     padding: var(--spacing);
 }
-.modal-wrapper.active {
+.modal-wrapper:has( .modal-body.active ) {
     opacity: 1;
     pointer-events: initial;
 }
@@ -159,7 +178,7 @@ body {
     margin-right: -100%;
     transition: 0.15s;
 }
-.modal-wrapper.active > .modal {
+.modal-wrapper:has( .modal-body.active ) > .modal {
     margin-right: 0px;
 }
 .modal-header {
@@ -169,9 +188,31 @@ body {
     align-items: center;
     height: 2.5rem;
     border-radius: var(--radius);
+    grid-gap: var(--spacing);
+    padding: 0.5rem;
+}
+.modal-header > span {
+    display: flex;
+    flex: 1;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 0.85rem;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+.modal-button {
+    display: none;
+    width: 1.5rem;
+    height: 1.5rem;
+}
+.modal-button.active {
+    display: flex;
+}
+.modal-close {
+    display: flex;
 }
 .modal-body {
-    display: flex;
+    display: none;
     padding: var(--spacing);
     grid-gap: var(--spacing);
     flex-direction: column;
@@ -180,6 +221,9 @@ body {
     box-sizing: border-box;
     flex: 1;
     overflow-y: auto;
+}
+.modal-body.active {
+    display: flex;
 }
 .kv {
     display: flex;
@@ -202,7 +246,7 @@ body {
     justify-content: center;
     align-items: center;
 }
-.kv > .k:has( i ) > span {
+.kv > .k > span {
     margin-left: 1rem;
 }
 .kv > .k > span {
@@ -233,7 +277,7 @@ span.separator {
     outline: none;
     height: 100%;
     background-color: transparent;
-    font-family: FiraCode;
+    font-family: UIFont;
     border: none;
     text-align: right;
     color: #999999;
@@ -250,7 +294,7 @@ span.separator {
     outline: none;
     height: 100%;
     background-color: transparent;
-    font-family: FiraCode;
+    font-family: UIFont;
     border: none;
     text-align: right;
     color: #999999;
@@ -271,7 +315,7 @@ span.separator {
     background-color: rgba( 0, 0, 0, 0.15 );
     height: 100%;
     transition: 0.15s;
-    font-family: FiraCode;
+    font-family: UIFont;
     color: #999999;
     cursor: pointer;
     border: none;
@@ -308,17 +352,6 @@ span.separator {
     border: 2px solid rgba( 75, 75, 75, 0.5 );
     text-transform: uppercase;
     border-radius: var(--spacing);
-}
-
-.close {
-    display: flex;
-    font-size: 0.75rem;
-    color: #999999;
-    transition: 0.15s;
-}
-.close:hover {
-    color: #ffffff;
-    cursor: pointer;
 }
 
 .boundary {
@@ -405,7 +438,7 @@ button {
     border-radius: var(--radius);
     outline: none;
     border: none;
-    font-family: FiraCode;
+    font-family: UIFont;
     color: #999999;
     height: 2.5rem;
     cursor: pointer;
@@ -448,7 +481,7 @@ button:hover {
     color: #ffffff;
     border-radius: var(--radius);
     border: 2px solid rgba( 175, 175, 175, 0.25 );
-    font-family: FiraCode;
+    font-family: UIFont;
 }
 
 .searchbox {
@@ -467,7 +500,7 @@ button:hover {
     color: #ffffff;
     border-radius: var(--radius);
     border: 2px solid rgba( 175, 175, 175, 0.25 );
-    font-family: FiraCode;
+    font-family: UIFont;
 }
 .searchbox.active {
     opacity: 1;
@@ -483,7 +516,53 @@ button:hover {
     color: #ffffff;
     border-radius: var(--radius);
     margin-top: 0.5rem;
+    transition: 0.15s opacity;
 }
 .tooltip.active {
     opacity: 1;
+}
+
+.context-menu {
+    position: fixed;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 1000;
+    background-color: rgba( 50, 50, 50, 0.75 );
+    backdrop-filter: blur( 8px );
+    color: #ffffff;
+    border-radius: var(--radius);
+    display: flex;
+    flex-direction: column;
+    transition: 0.15s;
+    transform-origin: top left;
+    scale: 0;
+    font-size: 0.85rem;
+}
+.context-menu.active {
+    opacity: 1;
+    scale: 1;
+    pointer-events: initial;
+}
+.context-option {
+    position: relative;
+    display: flex;
+    padding: 0.5rem;
+    transition: 0.15s;
+    cursor: pointer;
+    color: #cccccc;
+    border-radius: var(--radius);
+}
+.context-option:hover > .context-menu.sub {
+    opacity: 1;
+    scale: 1;
+    pointer-events: initial;
+}
+.context-menu.sub {
+    position: absolute;
+    left: 100%;
+    top: 0px;
+}
+.context-option:hover {
+    background-color: rgba( 0, 0, 0, 0.15 );
+    color: #ffffff;
 }

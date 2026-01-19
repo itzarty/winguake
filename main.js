@@ -5,7 +5,6 @@
         BrowserWindow,
         screen,
         ipcMain,
-        shell,
         Tray,
         Menu,
         nativeImage,
@@ -13,14 +12,12 @@
     } = require( 'electron' );
     const path = require( 'path' );
     const AutoLaunch = require( 'auto-launch' );
-    const { UiohookKey, uIOhook } = require( 'uiohook-napi' );
-
-    const pty = require( 'node-pty' );
     const { SerialPort } = require( 'serialport' );
-    const SSH = require( 'ssh2' );
-    const { Telnet } = require( 'telnet-client' );
+    const { UiohookKey } = require( 'uiohook-napi' );
 
     const IPC = require( './web/ipc.js' );
+    const Shortcuts = require( './src/shortcuts.js' );
+    const Interface = require( './src/interfaces.js' );
 
     await app.whenReady( );
 
@@ -35,6 +32,14 @@
         release: app.isPackaged
     }
 
+    let autoLaunch;
+    if( info.release ) {
+        autoLaunch = new AutoLaunch( {
+            name: 'WinGuake',
+            path: app.getPath( 'exe' )
+        } );
+    }
+
     const window = new BrowserWindow( {
         webPreferences: {
             contextIsolation: false,
@@ -47,20 +52,6 @@
         skipTaskbar: true,
         transparent: true
     } );
-
-    const instances = { };
-
-    const quit = ( ) => {
-        window.hide( );
-        for( const instance of Object.values( instances ) ) {
-            try {
-                instance.kill( );
-            } catch( error ) {
-                console.error( 'Could not kill a running PTY', error );
-            }
-        }
-        window.close( );
-    }
 
     const icon = nativeImage.createFromPath( path.join( __dirname, 'icon.png' ) );
     const tray = new Tray( icon );
@@ -79,6 +70,20 @@
         }
     ] );
     tray.setContextMenu( contextMenu );
+
+    const instances = { };
+
+    const quit = ( ) => {
+        window.hide( );
+        for( const instance of Object.values( instances ) ) {
+            try {
+                instance.kill( );
+            } catch( error ) {
+                console.error( 'Could not kill a running PTY', error );
+            }
+        }
+        window.close( );
+    }
 
     window.loadFile( 'web/index.html' );
 
@@ -111,32 +116,19 @@
         }
         show( );
     }
-    
-    let autoLaunch;
-
-    if( info.release ) {
-        autoLaunch = new AutoLaunch( {
-            name: 'WinGuake',
-            path: app.getPath( 'exe' )
-        } );
-    }
 
     let maximized = false;
 
+    const switches = {
+        '-t': toggle,
+        '-s': show,
+        '-h': window.hide
+    }
+
     app.on( 'second-instance', ( event, argv ) => {
-        if( argv.includes( '-t' ) ) {
-            toggle( );
-            return;
-        }
-
-        if( argv.includes( '-s' ) ) {
-            show( );
-            return;
-        }
-
-        if( argv.includes( '-h' ) ) {
-            window.hide( );
-            return;
+        for( const arg of argv ) {
+            const sw = switches[ arg ];
+            if( sw ) sw( );
         }
 
         const target = argv.at( -1 );
@@ -182,16 +174,6 @@
         setTimeout( ( ) => resizeLoop( direction ), 10 );
     }
 
-    const keysDown = [ ];
-
-    Array.prototype.compare = function( array ) {
-        if( this.length != array.length ) return false;
-        for( let i = 0; i < this.length; i++ ) {
-            if( this[ i ] != array[ i ] ) return false;
-        }
-        return true;
-    }
-
     const binds = {
         kill: {
             combination: [ ],
@@ -217,6 +199,18 @@
             combination: [ ],
             up: ( ) => send( 'instance' )
         },
+        max: {
+            combination: [ ],
+            up: ( ) => {
+                if( !window.isFocused( ) ) return;
+                maximized = !maximized;
+                if( !maximized ) {
+                    show( );
+                    return;
+                }
+                window.maximize( );
+            }
+        },
         devTools: {
             combination: [ UiohookKey.F6 ],
             up: ( ) => {
@@ -237,11 +231,18 @@
         initialize: async ( _, answer ) => answer( null, info ),
         bounding: boundings => multipliers = boundings,
         selectDirectory: async ( _, answer ) => {
-            const result = await dialog.showOpenDialog( {
+            const result = await dialog.showOpenDialog( window, {
                 properties: [ 'openDirectory' ]
             } );
             const [ directory ] = result.filePaths;
             answer( null, directory );
+        },
+        selectFile: async ( _, answer ) => {
+            const result = await dialog.showOpenDialog( window, {
+                properties: [ 'openFile' ]
+            } );
+            const [ file ] = result.filePaths;
+            answer( null, file );
         },
         resizeWindow: ( { state, direction } ) => {
             resizeEnable = state;
@@ -256,14 +257,6 @@
             if( !instance ) return;
             instance.kill( );
         },
-        toggleMax: ( ) => {
-            maximized = !maximized;
-            if( !maximized ) {
-                show( );
-                return;
-            }
-            window.maximize( );
-        },
         resize: ( { cols, rows } ) => {
             for( const instance of Object.values( instances ) ) {
                 instance.resize( cols, rows );
@@ -273,6 +266,12 @@
         bind: ( { name, combination } ) => {
             if( !binds[ name ] ) return;
             binds[ name ].combination = combination.replaceAll( 'Control', 'Ctrl' ).split( '+' ).map( str => UiohookKey[ str ] );
+        },
+        presetBind: ( { combination, callback, id } ) => {
+            binds[ id ] = {
+                combination: combination.replaceAll( 'Control', 'Ctrl' ).split( '+' ).map( str => UiohookKey[ str ] ),
+                up: ( ) => callback( )
+            }
         },
         autoLaunch: async ( _, answer ) => {
             if( !app.isPackaged ) {
@@ -297,122 +296,22 @@
 
             answer( !enabled );
         },
-        instance: async ( {
-            id,
-            mode,
-            options,
-            write,
-            exit
-        }, answer ) => {
-            switch( mode ) {
-                default:
-                case 'shell':
-                    const { file, cwd, shell } = options;
-                    const ptyProcess = pty.spawn( shell, file ? [ file ] : [ ], {
-                        name: 'xterm-color',
-                        cols: 80,
-                        rows: 30,
-                        cwd: cwd || process.env.HOME
-                    } );
-
-                    ptyProcess.onData( write );
-                    ptyProcess.onExit( reason => {
+        instance: async ( { id, mode, options, write, exit }, answer ) => {
+            try {
+                const interface = await Interface( {
+                    mode,
+                    write,
+                    exit: reason => {
                         delete instances[ id ];
                         exit( reason );
-                    } );
-
-                    instances[ id ] = {
-                        kill: ( ) => ptyProcess.kill( ),
-                        write: data => ptyProcess.write( data ),
-                        resize: ( cols, rows ) => ptyProcess.resize( cols, rows )
                     }
+                }, options );
 
-                    answer( true, {
-                        write: data => ptyProcess.write( data ),
-                        kill: ( ) => ptyProcess.kill( )
-                    } );
-                    break;
-                case 'serial':
-                    const { path, baudRate } = options;
-                    const port = new SerialPort( { path, baudRate } );
+                instances[ id ] = interface;
 
-                    const decoder = new TextDecoder( );
-
-                    port.on( 'data', data => {
-                        const decoded = decoder.decode( data );
-                        write( decoded );
-                    } );
-
-                    port.on( 'close', ( ) => {
-                        delete instances[ id ];
-                        exit( );
-                    } );
-
-                    port.on( 'error', ( ) => {
-                        exit( 'An error occured' );
-                    } );
-
-                    answer( true, {
-                        write: data => port.write( data ),
-                        kill: ( ) => port.close( )
-                    } );
-                    break;
-                case 'ssh': {
-                    const connection = new SSH.Client( );
-                    connection.on( 'ready', ( ) => {
-                        connection.shell( {
-                            term: 'xterm-color',
-                            cols: 80,
-                            rows: 24
-                        }, ( error, stream ) => {
-                            if( error ) {
-                                console.error( error );
-                                return;
-                            }
-
-                            stream.on( 'data', data => write( data ) );
-
-                            const instance = {
-                                write: data => stream.write( data ),
-                                kill: ( ) => connection.end( ),
-                                resize: ( cols, rows ) => stream.setWindow( rows, cols )
-                            }
-
-                            instances[ id ] = instance;
-
-                            answer( true, {
-                                write: data => stream.write( data ),
-                                kill: ( ) => connection.end( )
-                            } );
-                        } );
-                    } ).connect( options );
-
-                    connection.on( 'close', ( ) => {
-                        delete instances[ id ];
-                        exit( );
-                    } );
-
-                    connection.on( 'error', error => {
-                        exit( 'An error occured' );
-                    } );
-                    break;
-                }
-                case 'telnet': {
-                    const connection = new Telnet( );
-                    connection.connect( options ).then( ( ) => {
-                        connection.on( 'data', write );
-
-                        connection.on( 'error', ( ) => console.error( 'Couldnt connect' ) );
-                    } ).catch( error => {
-                        exit( 'An error occured' );
-                    } );
-
-                    answer( true, {
-                        write: data => connection.send( data ),
-                        kill: ( ) => connection.destroy( )
-                    } );
-                    break;
-                }
+                answer( true, { ... interface } );
+            } catch( error ) {
+                exit( );
             }
             show( );
         },
@@ -422,30 +321,6 @@
         }
     }, console.error );
 
-    uIOhook.on( 'keydown', event => {
-        if( keysDown.indexOf( event.keycode ) == -1 ) keysDown.push( event.keycode );
-
-        for( const bind in binds ) {
-            const { combination, down } = binds[ bind ];
-            if( !down ) continue;
-            if( !combination.compare( keysDown ) ) continue;
-            down( );
-        }
-    } );
-
-
-    uIOhook.on( 'keyup', event => {
-        for( const bind in binds ) {
-            const { combination, up } = binds[ bind ];
-            if( !up ) continue;
-            if( !combination.compare( keysDown ) ) continue;
-            up( );
-        }
-
-        const index = keysDown.indexOf( event.keycode );
-        if( index != -1 ) keysDown.splice( index, 1 );
-    } );
-
-    uIOhook.start( );
+    Shortcuts( binds );
 
 } )( );
