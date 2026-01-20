@@ -61,7 +61,7 @@ const ISerial = ( { write, exit }, { path, baudRate } ) => {
     }
 }
 
-const ISSH = ( { write, exit }, options ) => new Promise( resolve => {
+const ISSH = ( { write, exit, latency }, options ) => new Promise( resolve => {
     const connection = new Client( );
 
     connection.on( 'ready', ( ) => {
@@ -75,9 +75,34 @@ const ISSH = ( { write, exit }, options ) => new Promise( resolve => {
                 return;
             }
 
+            let connected = true;
+            const end = reason => {
+                connected = false;
+                exit( reason );
+            }
+
             stream.on( 'data', data => write( data ) );
-            connection.on( 'close', exit );
-            connection.on( 'error', exit );
+            stream.on( 'close', end );
+            connection.on( 'close', end );
+            connection.on( 'error', end );
+
+            // Latency detection
+            connection.exec( 'cat', ( error, stream ) => {
+                const loop = ( ) => {
+                    if( !connected ) {
+                        stream.end( );
+                        return;
+                    }
+                    let start;
+                    stream.once( 'data', ( ) => {
+                        latency( Date.now( ) - start );
+                    } );
+                    start = Date.now( );
+                    stream.write( '\n' );
+                    setTimeout( loop, 2000 );
+                }
+                loop( );
+            } );
 
             resolve( {
                 write: data => stream.write( data ),
@@ -88,6 +113,11 @@ const ISSH = ( { write, exit }, options ) => new Promise( resolve => {
                 resize: ( cols, rows ) => stream.setWindow( rows, cols )
             } );
         } );
+    } );
+
+    connection.on( 'error', error => {
+        console.error( error );
+        exit( error );
     } );
 
     connection.connect( options );

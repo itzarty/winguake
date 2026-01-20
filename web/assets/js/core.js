@@ -115,7 +115,8 @@
             ghost: 'Meta+Control',
             omnibox: 'Control+Shift+P',
             search: 'Control+Shift+F',
-            copy: 'Control+Shift+C'
+            copy: 'Control+Shift+C',
+            timestamps: 'Alt'
         },
         bounding: {
             x: 0,
@@ -128,7 +129,11 @@
         presets: { },
         webgl: false,
         palettes: { },
-        palette: -1
+        palette: -1,
+        audio: {
+            sink: 'default',
+            volume: 1
+        }
     }
 
     const correctConfig = ( object, defaults ) => {
@@ -150,7 +155,11 @@
         cursor: ( ) => eachInstance( instance => instance.terminal.options.cursorStyle = CONFIG.cursor ),
         opacity: ( ) => setOpacity( CONFIG.opacity ),
         palette: ( ) => reloadPalette( ),
-        palettes: ( ) => reloadPalette( )
+        palettes: ( ) => reloadPalette( ),
+        audio: {
+            volume: ( ) => audioEngine.setVolume( CONFIG.audio.volume ),
+            sink: ( ) => audioEngine.setSink( CONFIG.audio.sink )
+        }
     }, ( ) => {
         localStorage.setItem( 'config', JSON.stringify( config ) );
     } );
@@ -173,10 +182,8 @@
         },
         omniboxWrapper: $s( '.omnibox-wrapper' ),
         omnibox: $s( '.omnibox' ),
-        tooltip: $s( '.tooltip' ),
         searchbox: $s( '.searchbox' ),
-        boundaryActive: ( ) => $s( '.boundary.active' ),
-        contextMenu: $s( '.context-menu' ),
+        boundaryActive: ( ) => $s( '.boundary.active' )
     }
 
     const Language = {
@@ -204,44 +211,6 @@
         brightWhite: 'Bright white'
     }
 
-    const it_hex = dict => {
-        if( !dict ) return;
-
-        const r = Math.round( ( dict[ 'Red Component' ] || 0 ) * 255 );
-        const g = Math.round( ( dict[ 'Green Component' ] || 0 ) * 255 );
-        const b = Math.round( ( dict[ 'Blue Component' ] || 0 ) * 255 );
-
-        return '#' + [ r, g, b ].map( c => c.toString( 16 ).padStart( 2, '0' ) ).join( '' );
-    }
-
-    const it_dict = {
-        background: 'Background Color',
-        foreground: 'Foreground Color',
-        cursor: 'Cursor Color',
-        cursorAccent: 'Cursor Text Color',
-        selectionBackground: 'Selection Color',
-        selectionForeground: 'Selected Text Color'
-    }
-
-    const it_list = [ 'black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white', 'brightBlack', 'brightRed', 'brightGreen', 'brightYellow', 'brightBlue', 'brightMagenta', 'brightCyan', 'brightWhite' ];
-
-    const it_convert = text => {
-        const it = plist.parse( text );
-        const result = { }
-
-        for( const key in it_dict ) {
-            const value = it_dict[ key ];
-            result[ key ] = it_hex( it[ value ] );
-        }
-
-        for( let i = 0; i < 16; i++ ) {
-            const key = it_list[ i ];
-            result[ key ] = it_hex( it[ `Ansi ${ i } Color` ] );
-        }
-
-        return result;
-    }
-
     const reloadPalette = ( ) => {
         const palette = CONFIG.palette == -1 ? DEFAULT_PALETTE : CONFIG.palettes[ CONFIG.palette ].scheme;
         if( !palette ) {
@@ -253,6 +222,11 @@
             instance.terminal.options.theme = palette;
         }
     }
+
+    const audioEngine = new AudioEngine( );
+    audioEngine.setVolume( CONFIG.audio.volume );
+    audioEngine.setSink( CONFIG.audio.sink );
+    await audioEngine.load( 'bell', './assets/audio/bell.mp3' );
 
     // XTerm.js opacity injection
 
@@ -299,6 +273,10 @@
         const modal = modals.at( -1 );
         UI.modalTitle.innerText = modal.title;
         modal.body.classList.add( 'active' );
+        if( modal.reload ) {
+            modal.body.innerHTML = null;
+            modal.reload( modal.body );
+        }
 
         if( modal.action ) {
             UI.modalAction.classList.add( 'active' );
@@ -322,7 +300,7 @@
 
     UI.modalBack.onclick = modalBack;
 
-    const modalOpen = ( { title, serial = false, action, icon } ) => {
+    const modalOpen = ( { title, serial = false, action, icon, reload } ) => {
         if( !serial ) modals.splice( 0 );
 
         const body = $n( {
@@ -335,7 +313,8 @@
             title,
             action,
             body,
-            icon
+            icon,
+            reload
         } );
 
         modalActivate( );
@@ -365,6 +344,53 @@
 
     const eachInstance = callback => {
         for( const id in instances ) callback( instances[ id ] );
+    }
+
+    class TimestampGutter {
+        constructor( terminal ) {
+            this.map = new Map( );
+            this.terminal = terminal;
+            this.screen = $s( this.terminal.element, '.xterm-screen' );
+
+            this.element = $qn( '.gutter', this.screen );
+
+            this.terminal.onLineFeed( ( ) => this.add( ) );
+            this.terminal.onRender( ( ) => this.update( ) );
+            this.terminal.onScroll( ( ) => this.update( ) );
+        }
+        add( ) {
+            const marker = this.terminal.registerMarker( 0 );
+            if( !marker ) return;
+
+            this.map.set( marker.line, new Date( ) );
+            marker.onDispose( ( ) => this.map.delete( marker.line ) );
+        }
+        update( ) {
+            const buffer = this.terminal.buffer.active;
+            const viewportY = buffer.viewportY;
+            const rows = this.terminal.rows;
+            this.element.innerHTML = null;
+
+            for( let i = 0; i < rows; i++ ) {
+                const index = viewportY + i;
+                const line = buffer.getLine( index );
+
+                let string = '';
+
+                if( !line || !line.isWrapped ) {
+                    const stamp = this.map.get( index );
+                    if( stamp ) string = `${ stamp.getHours( ) }:${ stamp.getMinutes( ) }:${ stamp.getSeconds( ) }:${ stamp.getMilliseconds( ) }`;
+                }
+
+                $qn( 'span', this.element, string );
+            }
+        }
+        show( ) {
+            this.element.classList.add( 'active' );
+        }
+        hide( ) {
+            this.element.classList.remove( 'active' );
+        }
     }
 
     class Instance {
@@ -497,6 +523,8 @@
 
             this.terminal.open( this.wrapperElement );
 
+            this.timestampGutter = new TimestampGutter( this.terminal );
+
             // transparency injection (not supported with webgl)
 
             if( !CONFIG.webgl ) {
@@ -508,6 +536,28 @@
             this.terminal.onData( this.out );
             this.terminal.onTitleChange( this.changeTitle );
             this.terminal.onBell( this.bell );
+
+            this.terminal.attachCustomWheelEventHandler( event => {
+                if( !event.ctrlKey ) return;
+                const delta = event.deltaY > 0 ? 1 : -1;
+                const size = this.terminal.options.fontSize + delta;
+                if( size < 8 || size > 64 ) return;
+                this.setFont( false, size );
+            } );
+
+            this.terminal.attachCustomKeyEventHandler( event => {
+                if( !event.ctrlKey ) return;
+                if( event.key == '+' ) {
+                    const size = this.terminal.options.fontSize + 1;
+                    if( size > 64 ) return;
+                    this.setFont( false, size );
+                }
+                if( event.key == '-' ) {
+                    const size = this.terminal.options.fontSize - 1;
+                    if( size < 8 ) return;
+                    this.setFont( false, size );
+                }
+            } );
 
             // transformations
 
@@ -521,6 +571,7 @@
             this.activate( );
         }
         initialize = async ( ) => {
+            this.SOL = true;
             this.ipc = await send( 'instance', {
                 id: this.id,
                 mode: this.mode,
@@ -536,12 +587,8 @@
         linkHandler = uri => {
             shell.openExternal( uri );
         }
-        in = data => {
-            this.terminal.write( data );
-        }
-        out = data => {
-            this.ipc.write( data );
-        }
+        in = data => this.terminal.write( data )
+        out = data => this.ipc.write( data )
         changeTitle = title => {
             this.title = title.split( '\\' ).at( -1 );
             this.titleElement.innerText = this.customTitle || this.title;
@@ -563,7 +610,9 @@
             }
         }
         changeColor = color => this.tabElement.style.backgroundColor = color ? color + '4f' : ''
-        bell = ( ) => send( 'bell' )
+        bell = ( ) => {
+            audioEngine.play( 'bell' );
+        }
         activate = ( ) => {
             activeInstance = this;
 
@@ -589,7 +638,7 @@
             } );
         }
         setFont = ( family, size ) => {
-            this.terminal.options.fontFamily = family;
+            if( family ) this.terminal.options.fontFamily = family;
             if( size ) this.terminal.options.fontSize = size;
 
             this.resize( );
@@ -648,6 +697,12 @@
 
         const combination = keysDown.join( '+' );
 
+        // Timestamps
+        if( combination == CONFIG.binds.timestamps ) {
+            activeInstance.timestampGutter.show( );
+            return;
+        }
+
         // Omnibox
         if( combination == CONFIG.binds.omnibox ) {
             UI.omniboxWrapper.classList.toggle( 'active' );
@@ -690,10 +745,16 @@
     }
 
     window.onkeyup = event => {
+        const combination = keysDown.join( '+' );
+
+        // Timestamps
+        if( combination == CONFIG.binds.timestamps ) {
+            activeInstance.timestampGutter.hide( );
+            return;
+        }
+
         const index = keysDown.indexOf( event.key );
         if( index != -1 ) keysDown.splice( index, 1 );
-
-        const combination = keysDown.join( '+' );
 
         // Search handling
         if( UI.searchbox == document.activeElement ) {
@@ -721,42 +782,6 @@
                     break;
             }
         }
-    }
-
-    const buildSelect = ( { options, selected, parent, callback } ) => {
-        const select = $n( {
-            tag: 'select',
-            parent
-        } );
-        if( options instanceof Array ) {
-            for( let key = 0; key < options.length; key++ ) {
-                const value = options[ key ];
-                const element = $n( {
-                    tag: 'option',
-                    value: key,
-                    text: value,
-                    parent: select
-                } );
-                if( selected == key ) element.selected = 'selected';
-            }
-        } else {
-            for( const key in options ) {
-                const value = options[ key ];
-                const element = $n( {
-                    tag: 'option',
-                    value: key,
-                    text: value,
-                    parent: select
-                } );
-                if( selected == key ) element.selected = 'selected';
-            }
-        }
-        if( callback ) {
-            select.addEventListener( 'change', ( ) => {
-                callback( select.value );
-            } );
-        }
-        return select;
     }
 
     const getKeyCombination = ( ) => new Promise( resolve => {
@@ -833,161 +858,150 @@
         return fontCache.fonts;
     }
 
-    const KV = ( { label, icon, content, tooltip }, parent ) => {
-        const wrapper = $qn( '.kv', parent );
-
-        const keyWrapper = $qn( '.k', wrapper );
-        if( icon ) keyWrapper.innerHTML += icon;
-        const labelElement = $qn( 'span', keyWrapper, label );
-        if( tooltip ) labelElement.setAttribute( 'tooltip', tooltip );
-
-        const valueElement = $qn( '.v', wrapper );
-        if( content ) valueElement.innerHTML = content;
-        return valueElement;
-    }
-
     const editPalette = id => {
-        const modal = modalOpen( {
+        modalOpen( {
             title: 'Palette editor',
             serial: true,
             action: ( ) => {
                 CONFIG.palettes[ id ] = palette;
             },
-            icon: '<i class="fa-solid fa-floppy-disk"></i>'
+            icon: '<i class="fa-solid fa-floppy-disk"></i>',
+            reload: modal => {
+                const palette = CONFIG.palettes[ id ];
+
+                const kvTitle = KV( {
+                    label: 'Palette title'
+                }, modal );
+
+                const titleInput = $n( {
+                    tag: 'input',
+                    parent: kvTitle,
+                    type: 'text',
+                    value: palette.title,
+                    onkeyup: ( ) => palette.title = titleInput.value
+                } );
+
+                for( const color in palette.scheme ) {
+                    const hex = palette.scheme[ color ];
+                    const kv = KV( {
+                        label: Language[ color ]
+                    }, modal );
+                    const input = $n( {
+                        tag: 'input',
+                        type: 'color',
+                        value: hex,
+                        parent: kv,
+                        onchange: ( ) => palette.scheme[ color ] = input.value
+                    } );
+                }
+            }
         } );
-
-        const palette = CONFIG.palettes[ id ];
-
-        const kvTitle = KV( {
-            label: 'Palette title'
-        }, modal );
-
-        const titleInput = $n( {
-            tag: 'input',
-            parent: kvTitle,
-            type: 'text',
-            value: palette.title,
-            onkeyup: ( ) => palette.title = titleInput.value
-        } );
-
-        for( const color in palette.scheme ) {
-            const hex = palette.scheme[ color ];
-            const kv = KV( {
-                label: Language[ color ]
-            }, modal );
-            const input = $n( {
-                tag: 'input',
-                type: 'color',
-                value: hex,
-                parent: kv,
-                onchange: ( ) => palette.scheme[ color ] = input.value
-            } );
-        }
     }
 
     const paletteMenu = ( ) => {
-        const modal = modalOpen( {
+        modalOpen( {
             title: 'Terminal palette',
-            serial: true
-        } );
+            serial: true,
+            reload: modal => {
+                const kvCurrent = KV( {
+                    label: 'Current palette',
+                    icon: '<i class="fa-regular fa-circle-check"></i>'
+                }, modal );
 
-        const kvCurrent = KV( {
-            label: 'Current palette',
-            icon: '<i class="fa-regular fa-circle-check"></i>'
-        }, modal );
-
-        const select = $n( {
-            tag: 'select',
-            parent: kvCurrent,
-            onchange: ( ) => {
-                CONFIG.palette = Number( select.value );
-                paletteMenu( );
-            }
-        } );
-
-        for( const id in CONFIG.palettes ) {
-            const palette = CONFIG.palettes[ id ];
-            $n( {
-                tag: 'option',
-                text: palette.title,
-                value: id,
-                parent: select
-            } );
-        }
-
-        $n( {
-            tag: 'option',
-            text: 'Default',
-            value: '-1',
-            parent: select
-        } );
-
-        select.value = CONFIG.palette ? CONFIG.palette : '-1';
-
-        const kvNew = KV( {
-            label: 'New theme',
-            icon: '<i class="fa-solid fa-plus"></i>'
-        }, modal );
-
-        $n( {
-            tag: 'button',
-            parent: kvNew,
-            html: '<i class="fa-solid fa-file-import"></i>',
-            tooltip: 'Import an ITerm2 color scheme file',
-            onclick: async ( ) => {
-                const path = await send( 'selectFile' );
-                fs.readFile( path, 'utf8', ( error, text ) => {
-                    if( error ) return;
-                    const palette = it_convert( text );
-                    const id = Date.now( );
-                    CONFIG.palettes[ id ] = {
-                        title: 'Imported palette',
-                        scheme: palette
+                const select = $n( {
+                    tag: 'select',
+                    parent: kvCurrent,
+                    onchange: ( ) => {
+                        CONFIG.palette = Number( select.value );
+                        paletteMenu( );
                     }
-                    paletteMenu( );
                 } );
+
+                for( const id in CONFIG.palettes ) {
+                    const palette = CONFIG.palettes[ id ];
+                    $n( {
+                        tag: 'option',
+                        text: palette.title,
+                        value: id,
+                        parent: select
+                    } );
+                }
+
+                $n( {
+                    tag: 'option',
+                    text: 'Default',
+                    value: '-1',
+                    parent: select
+                } );
+
+                select.value = CONFIG.palette ? CONFIG.palette : '-1';
+
+                const kvNew = KV( {
+                    label: 'New theme',
+                    icon: '<i class="fa-solid fa-plus"></i>'
+                }, modal );
+
+                $n( {
+                    tag: 'button',
+                    parent: kvNew,
+                    html: '<i class="fa-solid fa-file-import"></i>',
+                    tooltip: 'Import an ITerm2 color scheme file',
+                    onclick: async ( ) => {
+                        const path = await send( 'selectFile' );
+                        fs.readFile( path, 'utf8', ( error, text ) => {
+                            if( error ) return;
+                            const palette = it_convert( text );
+                            const id = Date.now( );
+                            CONFIG.palettes[ id ] = {
+                                title: 'Imported palette',
+                                scheme: palette
+                            }
+                            paletteMenu( );
+                        } );
+                    }
+                } );
+
+                $n( {
+                    tag: 'button',
+                    parent: kvNew,
+                    html: '<i class="fa-solid fa-plus"></i>',
+                    onclick: ( ) => {
+                        const id = Date.now( );
+                        CONFIG.palettes[ id ] = {
+                            title: 'New theme',
+                            scheme: DEFAULT_PALETTE
+                        }
+                        paletteMenu( );
+                    }
+                } );
+
+                $qn( 'span.separator', modal, 'Available themes' );
+
+                const wrapper = $qn( '.w.v', modal );
+
+                for( const id in CONFIG.palettes ) {
+                    const palette = CONFIG.palettes[ id ];
+                    const kv = KV( {
+                        label: palette.title
+                    }, wrapper );
+                    $n( {
+                        tag: 'button',
+                        parent: kv,
+                        html: '<i class="fa-solid fa-trash"></i>',
+                        onclick: ( ) => {
+                            delete CONFIG.palettes[ id ];
+                            paletteMenu( );
+                        }
+                    } );
+                    $n( {
+                        tag: 'button',
+                        parent: kv,
+                        html: '<i class="fa-solid fa-angle-right"></i>',
+                        onclick: ( ) => editPalette( id )
+                    } );
+                }
             }
         } );
-
-        $n( {
-            tag: 'button',
-            parent: kvNew,
-            html: '<i class="fa-solid fa-plus"></i>',
-            onclick: ( ) => {
-                const id = Date.now( );
-                CONFIG.palettes[ id ] = {
-                    title: 'New theme',
-                    scheme: DEFAULT_PALETTE
-                }
-                paletteMenu( );
-            }
-        } );
-
-        $qn( 'span.separator', modal, 'Available themes' );
-
-        const wrapper = $qn( '.w.v', modal );
-
-        for( const id in CONFIG.palettes ) {
-            const palette = CONFIG.palettes[ id ];
-            const kv = KV( {
-                label: palette.title
-            }, wrapper );
-            $n( {
-                tag: 'button',
-                parent: kv,
-                html: '<i class="fa-solid fa-trash"></i>',
-                onclick: ( ) => {
-                    delete CONFIG.palettes[ id ];
-                    paletteMenu( );
-                }
-            } );
-            $n( {
-                tag: 'button',
-                parent: kv,
-                html: '<i class="fa-solid fa-angle-right"></i>',
-                onclick: ( ) => editPalette( id )
-            } );
-        }
     }
 
     const executePreset = id => {
@@ -998,7 +1012,9 @@
         }
         const instance = new Instance( preset.mode, preset.options );
         // TODO: add scripting
-        // instance.out( preset.script );
+        setTimeout( () => {
+            instance.ipc.write( preset.script );
+        }, 1000 );
         instance.changeTitle( preset.tabTitle );
         instance.changeColor( preset.tabColor );
     }
@@ -1006,21 +1022,23 @@
     const editPreset = id => {
         const preset = CONFIG.presets[ id ];
 
-        let options = preset.options;
-        let mode = preset.mode;
         let script = preset.script;
         let title = preset.title;
         let bind = preset.bind;
         let tabTitle = preset.tabTitle;
         let tabColor = preset.tabColor;
 
+        let result = {
+            mode: preset.mode,
+            options: preset.options
+        }
+
         const modal = modalOpen( {
             title: 'Edit preset',
             serial: true,
             action: ( ) => {
                 CONFIG.presets[ id ] = {
-                    options,
-                    mode,
+                    ... result,
                     script,
                     title,
                     bind,
@@ -1036,243 +1054,49 @@
             icon: '<i class="fa-solid fa-floppy-disk"></i>'
         } );
 
-        const kvTitle = KV( {
-            label: 'Title'
-        }, modal );
-
-        const titleInput = $n( {
-            tag: 'input',
-            type: 'text',
-            value: title,
-            parent: kvTitle,
-            onkeyup: ( ) => title = titleInput.value
-        } );
-
-        const kvTabTitle = KV( {
-            label: 'Tab title'
-        }, modal );
-
-        const tabTitleInput = $n( {
-            tag: 'input',
-            type: 'text',
-            value: tabTitle,
-            parent: kvTabTitle,
-            onkeyup: ( ) => tabTitle = tabTitleInput.value
-        } );
-
-        const kvTabColor = KV( {
-            label: 'Tab color'
-        }, modal );
-
-        const tabColorInput = $n( {
-            tag: 'input',
-            type: 'color',
-            value: tabColor,
-            parent: kvTabColor,
-            onchange: ( ) => tabColor = tabColorInput.value
-        } );
-
-        const kvBind = KV( {
-            label: 'Keyboard shortcut'
-        }, modal );
-
-        const bindButton = $n( {
-            tag: 'button',
-            parent: kvBind,
-            text: bind,
-            onclick: ( ) => {
-                getKeyCombination( ).then( combination => {
-                    const translated = combination.join( '+' );
-                    bind = bindButton.innerText = translated;
-                } );
-            }
-        } );
-
-        const kvMode = KV( {
-            label: 'Mode'
-        }, modal );
-
-        const optionsWrapper = $qn( '.w.v', modal );
-
-        const scriptInput = $n( {
-            tag: 'textarea',
-            parent: modal,
-            type: 'text',
-            placeholder: 'Your script goes here...',
-            onkeyup: ( ) => script = scriptInput.value
-        } );
-
-        buildSelect( {
-            parent: kvMode,
-            options: {
-                shell: 'Shell',
-                telnet: 'Telnet',
-                ssh: 'SSH',
-                serial: 'Serial'
+        ConfigBuilder( [
+            {
+                label: 'Title',
+                icon: '<i class="fa-solid fa-pencil"></i>',
+                type: 'text',
+                value: title,
+                callback: text => title = text
             },
-            callback: async selected => {
-                mode = selected;
-                optionsWrapper.innerHTML = null;
-                switch( mode ) {
-                    case 'shell':
-                        options = {
-                            cwd: CONFIG.startingDirectory,
-                            file: '',
-                            shell: CONFIG.shell
-                        }
-
-                        const kvShell = KV( {
-                            label: 'Shell',
-                            icon: '<i class="fa-solid fa-terminal"></i>'
-                        }, optionsWrapper );
-                        const shellInput = $n( {
-                            tag: 'input',
-                            parent: kvShell,
-                            type: 'text',
-                            value: options.shell,
-                            onchange: ( ) => options.shell = shellInput.value
-                        } );
-
-                        const kvCwd = KV( {
-                            label: 'Working directory',
-                            icon: '<i class="fa-solid fa-folder"></i>'
-                        }, optionsWrapper );
-                        const cwdButton = $n( {
-                            tag: 'button',
-                            parent: kvCwd,
-                            text: options.cwd,
-                            onclick: async ( ) => {
-                                const directory = await send( 'selectDirectory' );
-                                if( !directory ) return;
-                                options.cwd = directory;
-                                cwdButton.innerText = directory;
-                            }
-                        } );
-                        break;
-                    case 'ssh': {
-                        options = {
-                            host: '',
-                            port: 22,
-                            username: '',
-                            password: ''
-                        }
-
-                        const kvHost = KV( {
-                            label: 'Host',
-                            icon: '<i class="fa-solid fa-server"></i>'
-                        }, optionsWrapper );
-                        const hostInput = $n( {
-                            tag: 'input',
-                            type: 'text',
-                            parent: kvHost,
-                            placeholder: 'localhost',
-                            onchange: ( ) => options.host = hostInput.value
-                        } );
-
-                        const kvPort = KV( {
-                            label: 'Port',
-                            icon: '<i class="fa-solid fa-hashtag"></i>'
-                        }, optionsWrapper );
-                        const portInput = $n( {
-                            tag: 'input',
-                            type: 'number',
-                            value: options.port,
-                            parent: kvPort,
-                            onchange: ( ) => options.port = portInput.value
-                        } );
-
-                        const kvUsername = KV( {
-                            label: 'Username',
-                            icon: '<i class="fa-solid fa-user"></i>'
-                        }, optionsWrapper );
-                        const usernameInput = $n( {
-                            tag: 'input',
-                            type: 'text',
-                            parent: kvUsername,
-                            placeholder: os.userInfo( ).username,
-                            onchange: ( ) => options.username = usernameInput.value
-                        } );
-
-                        const kvPassword = KV( {
-                            label: 'Password',
-                            icon: '<i class="fa-solid fa-key"></i>'
-                        }, optionsWrapper );
-                        const passwordInput = $n( {
-                            tag: 'input',
-                            type: 'password',
-                            parent: kvPassword,
-                            placeholder: 'supersecretpassword',
-                            onchange: ( ) => options.password = passwordInput.value
-                        } );
-                        break;
-                    }
-                    case 'serial':
-                        options = {
-                            path: '',
-                            baudRate: 115200
-                        }
-                        const devices = await send( 'serialDevices' );
-                        const kvDevice = KV( {
-                            label: 'Device',
-                            icon: '<i class="fa-solid fa-plug"></i>'
-                        }, optionsWrapper );
-
-                        const deviceList = devices.map( device => device.path );
-                        options.path = deviceList[ 0 ];
-
-                        buildSelect( {
-                            options: deviceList,
-                            parent: kvDevice,
-                            callback: path => options.path = path
-                        } );
-
-                        const kvBaudRate = KV( {
-                            label: 'Baudrate',
-                            icon: '<i class="fa-solid fa-clock-rotate-left"></i>'
-                        }, optionsWrapper );
-                        const baudrateInput = $n( {
-                            tag: 'input',
-                            type: 'number',
-                            value: 115200,
-                            parent: kvBaudRate,
-                            onchange: ( ) => {
-                                options.baudRate = baudrateInput.value;
-                            }
-                        } );
-                        break;
-                    case 'telnet': {
-                        options = {
-                            host: '',
-                            port: 23
-                        }
-
-                        const kvHost = KV( {
-                            label: 'Host',
-                            icon: '<i class="fa-solid fa-server"></i>'
-                        }, optionsWrapper );
-                        const hostInput = $n( {
-                            tag: 'input',
-                            type: 'text',
-                            parent: kvHost,
-                            placeholder: 'localhost',
-                            onchange: ( ) => options.host = hostInput.value
-                        } );
-
-                        const kvPort = KV( {
-                            label: 'Port',
-                            icon: '<i class="fa-solid fa-hashtag"></i>'
-                        }, optionsWrapper );
-                        const portInput = $n( {
-                            tag: 'input',
-                            type: 'number',
-                            value: options.port,
-                            parent: kvPort,
-                            onchange: ( ) => options.port = portInput.value
-                        } );
-                        break;
-                    }
+            {
+                label: 'Tab title',
+                icon: '<i class="fa-solid fa-heading"></i>',
+                type: 'text',
+                value: tabTitle,
+                callback: text => tabTitle = text
+            },
+            {
+                label: 'Tab color',
+                icon: '<i class="fa-solid fa-palette"></i>',
+                type: 'color',
+                value: tabColor,
+                callback: color => tabColor = color
+            },
+            {
+                label: 'Keyboard shortcut',
+                icon: '<i class="fa-solid fa-keyboard"></i>',
+                type: 'button',
+                html: bind,
+                callback: element => {
+                    getKeyCombination( ).then( combination => {
+                        const translated = combination.join( '+' );
+                        bind = element.innerText = translated;
+                    } );
                 }
             }
+        ], modal );
+
+        result = presetBuilder( modal, result.mode, result.options );
+
+        const scriptElement = $n( {
+            tag: 'textarea',
+            parent: modal,
+            text: script,
+            oninput: ( ) => script = scriptElement.value
         } );
     }
 
@@ -1327,191 +1151,141 @@
             title: 'Preferences'
         } );
         
-        $qn( 'span.separator', modal, 'Appearance' );
-
-        // Cursor style
-
-        const kvCursor = KV( {
-            label: 'Cursor style',
-            icon: '<i class="fa-solid fa-i-cursor"></i>'
-        }, modal );
-
-        buildSelect( {
-            options: {
-                bar: 'Bar',
-                block: 'Block',
-                underline: 'Underline'
-            },
-            parent: kvCursor,
-            selected: CONFIG.cursor,
-            callback: option => CONFIG.cursor = option
-        } );
-
-        // Font family
-
-        const kvFont = KV( {
-            label: 'Font family',
-            icon: '<i class="fa-solid fa-font"></i>'
-        }, modal );
-
         const fonts = await Fonts( );
+        const sinks = arrMap( await audioEngine.sinks( ), 'deviceId', 'label' );
 
-        buildSelect( {
-            options: fonts,
-            parent: kvFont,
-            selected: CONFIG.font.family,
-            callback: option => CONFIG.font.family = option
-        } );
-
-        // Font size
-
-        const kvSize = KV( {
-            label: 'Font size',
-            icon: '<i class="fa-solid fa-text-width"></i>'
-        }, modal );
-
-        const fontSizeInput = $n( {
-            tag: 'input',
-            type: 'number',
-            min: 8,
-            max: 64,
-            value: CONFIG.font.size,
-            parent: kvSize,
-            onchange: ( ) => {
-                const size = fontSizeInput.value;
-                CONFIG.font.size = fontSizeInput.value;
-            }
-        } );
-
-        const kvOpacity = KV( {
-            label: 'Terminal opacity',
-            icon: '<i class="fa-solid fa-circle-half-stroke"></i>'
-        }, modal );
-
-        const opacityInput = $n( {
-            tag: 'input',
-            type: 'range',
-            min: 0,
-            max: 1,
-            step: 0.01,
-            value: CONFIG.opacity,
-            parent: kvOpacity,
-            oninput: ( ) => {
-                const opacity = opacityInput.value;
-                CONFIG.opacity = opacity;
-            }
-        } );
-
-        // Themes
-
-        const kvPalette = KV( {
-            label: 'Terminal palette',
-            icon: '<i class="fa-solid fa-palette"></i>'
-        }, modal );
-
-        $n( {
-            tag: 'button',
-            html: '<i class="fa-solid fa-angle-right"></i>',
-            parent: kvPalette,
-            onclick: paletteMenu
-        } );
-
-        // Presets
-
-        const kvPresets = KV( {
-            label: 'Presets',
-            icon: '<i class="fa-solid fa-file-lines"></i>'
-        }, modal );
-
-        $n( {
-            tag: 'button',
-            html: '<i class="fa-solid fa-angle-right"></i>',
-            parent: kvPresets,
-            onclick: presetsMenu
-        } );
-
-        $qn( 'span.separator', modal, 'Behavior' );
-
-        // Shell
-
-        const kvShell = KV( {
-            label: 'Shell',
-            icon: '<i class="fa-solid fa-terminal"></i>'
-        }, modal );
-
-        const shellInput = $n( {
-            tag: 'input',
-            type: 'text',
-            value: CONFIG.shell,
-            parent: kvShell
-        } );
-
-        $n( {
-            tag: 'button',
-            html: '<i class="fa-solid fa-check"></i>',
-            parent: kvShell,
-            onclick: ( ) => {
-                const shell = shellInput.value;
-                CONFIG.shell = shell;
-            }
-        } );
-
-        // Automatic launch
-
-        const kvAutoLaunch = KV( {
-            label: 'Run on startup',
-            icon: '<i class="fa-solid fa-rocket"></i>'
-        }, modal );
-
-        const autoLaunchCheck = $n( {
-            tag: 'input',
-            type: 'checkbox',
-            parent: kvAutoLaunch,
-            onclick: async ( ) => {
-                const result = await send( 'toggleAutoLaunch' );
-                autoLaunchCheck.checked = result;
+        ConfigBuilder( [
+            {
+                label: 'Appearance',
+                type: 'section'
             },
-            checked: await send( 'autoLaunch' )
-        } );
-
-        // Starting directory
-
-        const kvStart = KV( {
-            label: 'Starting directory',
-            icon: '<i class="fa-solid fa-folder"></i>'
-        }, modal );
-
-        const startingButton = $n( {
-            tag: 'button',
-            parent: kvStart,
-            text: CONFIG.startingDirectory,
-            onclick: async ( ) => {
-                const directory = await send( 'selectDirectory' );
-                if( !directory ) return;
-                CONFIG.startingDirectory = directory;
-                startingButton.innerText = directory;
+            {
+                label: 'Cursor style',
+                icon: '<i class="fa-solid fa-i-cursor"></i>',
+                type: 'select',
+                options: {
+                    bar: 'Bar',
+                    block: 'Block',
+                    underline: 'Underline'
+                },
+                selected: CONFIG.cursor,
+                callback: option => CONFIG.cursor = option
+            },
+            {
+                label: 'Font family',
+                icon: '<i class="fa-solid fa-font"></i>',
+                type: 'select',
+                options: fonts,
+                selected: CONFIG.font.family,
+                callback: option => CONFIG.font.family = option
+            },
+            {
+                label: 'Font size',
+                icon: '<i class="fa-solid fa-text-width"></i>',
+                type: 'number',
+                min: 8,
+                max: 64,
+                value: CONFIG.font.size,
+                callback: size => CONFIG.font.size = size
+            },
+            {
+                label: 'Terminal opacity',
+                icon: '<i class="fa-solid fa-circle-half-stroke"></i>',
+                type: 'range',
+                min: 0,
+                max: 1,
+                step: 0.01,
+                value: CONFIG.opacity,
+                callback: opacity => CONFIG.opacity = Number( opacity )
+            },
+            {
+                label: 'Terminal palette',
+                icon: '<i class="fa-solid fa-palette"></i>',
+                type: 'button',
+                html: '<i class="fa-solid fa-angle-right"></i>',
+                callback: paletteMenu
+            },
+            {
+                label: 'Presets',
+                icon: '<i class="fa-solid fa-file-lines"></i>',
+                type: 'button',
+                html: '<i class="fa-solid fa-angle-right"></i>',
+                callback: presetsMenu
+            },
+            {
+                label: 'Behavior',
+                type: 'section'
+            },
+            {
+                label: 'Shell',
+                icon: '<i class="fa-solid fa-terminal"></i>',
+                modules: [
+                    {
+                        type: 'text',
+                        value: CONFIG.shell
+                    },
+                    {
+                        type: 'button',
+                        html: '<i class="fa-solid fa-check"></i>',
+                        callback: ( input, triggered ) => {
+                            if( !input || !triggered ) return;
+                            CONFIG.shell = input;
+                        }
+                    }
+                ]
+            },
+            {
+                label: 'Run on startup',
+                icon: '<i class="fa-solid fa-rocket"></i>',
+                type: 'switch',
+                callback: async ( ) => {
+                    const result = await send( 'toggleAutoLaunch' );
+                    autoLaunchCheck.checked = result;
+                },
+                checked: await send( 'autoLaunch' )
+            },
+            {
+                label: 'Starting directory',
+                icon: '<i class="fa-solid fa-folder"></i>',
+                type: 'button',
+                html: CONFIG.startingDirectory,
+                    callback: async ( ) => {
+                    const directory = await send( 'selectDirectory' );
+                    if( !directory ) return;
+                    CONFIG.startingDirectory = directory;
+                }
+            },
+            {
+                label: 'Accelerated terminal rendering',
+                tooltip: 'Accelerates terminal rendering using WebGL',
+                icon: '<i class="fa-solid fa-folder"></i>',
+                type: 'switch',
+                callback: state => CONFIG.webgl = state,
+                checked: CONFIG.webgl
+            },
+            {
+                label: 'Volume',
+                icon: '<i class="fa-solid fa-volume-high"></i>',
+                type: 'range',
+                min: 0,
+                max: 1,
+                step: 0.01,
+                value: CONFIG.audio.volume,
+                callback: volume => CONFIG.audio.volume = Number( volume )
+            },
+            {
+                label: 'Audio output',
+                icon: '<i class="fa-solid fa-headphones"></i>',
+                type: 'select',
+                options: sinks,
+                selected: CONFIG.audio.sink,
+                callback: sink => CONFIG.audio.sink = sink
+            },
+            {
+                label: 'Keyboard shortcuts',
+                type: 'section'
             }
-        } );
-
-        // Hardware rendering
-
-        const kvWebgl = KV( {
-            label: 'Accelerated terminal rendering',
-            icon: '<i class="fa-solid fa-folder"></i>',
-            tooltip: 'Accelerates terminal rendering using WebGL'
-        }, modal );
-
-        const webglSwitch = $n( {
-            tag: 'input',
-            type: 'checkbox',
-            parent: kvWebgl,
-            checked: CONFIG.webgl,
-            onclick: async ( ) => {
-                CONFIG.webgl = webglSwitch.checked;
-            }
-        } );
-
-        $qn( 'span.separator', modal, 'Keyboard shortcuts' );
+        ], modal );
 
         // Binds
 
@@ -1562,6 +1336,12 @@
             icon: '<i class="fa-solid fa-star"></i>'
         }, modal );
         renderBinder( 'omnibox', kvOmnibox );
+
+        const kvTimestamps = KV( {
+            label: 'Show timestamps',
+            icon: '<i class="fa-solid fa-clock"></i>'
+        }, modal );
+        renderBinder( 'timestamps', kvTimestamps );
 
         // Info
         $qn( 'span.separator', modal, `WinGuake v${ info.version } (${ info.release ? 'Release' : 'Debug' })` );
@@ -1622,193 +1402,144 @@
 
     window.onfocus = ( ) => activeInstance.terminal.focus( );
 
+    const constructPresetBuilder = ( wrapper, result ) => {
+        wrapper.innerHTML = null;
+        switch( result.mode ) {
+            case 'shell':
+                ConfigBuilder( [
+                    {
+                        label: 'Shell',
+                        icon: '<i class="fa-solid fa-terminal"></i>',
+                        type: 'text',
+                        value: result.options.shell,
+                        callback: shell => result.options.shell = shell
+                    },
+                    {
+                        label: 'Working directory',
+                        icon: '<i class="fa-solid fa-folder"></i>',
+                        type: 'button',
+                        html: result.options.cwd,
+                        callback: async element => {
+                            const directory = await send( 'selectDirectory' );
+                            if( !directory ) return;
+                            result.options.cwd = directory;
+                            element.innerText = directory;
+                        }
+                    }
+                ], wrapper );
+                break;
+            case 'ssh':
+                ConfigBuilder( [
+                    {
+                        label: 'Host',
+                        icon: '<i class="fa-solid fa-server"></i>',
+                        type: 'text',
+                        value: result.options.host,
+                        callback: host => result.options.host = host
+                    },
+                    {
+                        label: 'Port',
+                        icon: '<i class="fa-solid fa-hashtag"></i>',
+                        type: 'number',
+                        value: result.options.port,
+                        callback: port => result.options.port = port
+                    },
+                    {
+                        label: 'Username',
+                        icon: '<i class="fa-solid fa-user"></i>',
+                        type: 'text',
+                        value: result.options.username,
+                        callback: username => result.options.username = username
+                    },
+                    {
+                        label: 'Password',
+                        icon: '<i class="fa-solid fa-key"></i>',
+                        type: 'text',
+                        value: result.options.password,
+                        callback: password => result.options.password = password
+                    }
+                ], wrapper );
+                break;
+            case 'serial':
+                send( 'serialDevices' ).then( devices => {
+                    const deviceList = devices.map( device => device.path );
+                    ConfigBuilder( [
+                        {
+                            label: 'Device',
+                            icon: '<i class="fa-solid fa-plug"></i>',
+                            type: 'select',
+                            options: deviceList,
+                            value: result.options.path,
+                            callback: path => result.options.path = path
+                        },
+                        {
+                            label: 'Baudrate',
+                            icon: '<i class="fa-solid fa-clock-rotate-left"></i>',
+                            type: 'number',
+                            value: result.options.baudRate,
+                            callback: baudRate => result.options.baudRate = baudRate
+                        }
+                    ], wrapper );
+                } );
+                break;
+            case 'telnet':
+                ConfigBuilder( [
+                    {
+                        label: 'Host',
+                        icon: '<i class="fa-solid fa-server"></i>',
+                        type: 'text',
+                        value: result.options.host,
+                        callback: host => result.options.host = host
+                    },
+                    {
+                        label: 'Port',
+                        icon: '<i class="fa-solid fa-hashtag"></i>',
+                        type: 'number',
+                        value: result.options.port,
+                        callback: port => result.options.port = port
+                    }
+                ], wrapper );
+                break;
+        }
+    }
+
+    const presetBuilder = ( parent, mode = 'shell', options = PRESET_DEFAULTS[ mode ] ) => {
+        const result = {
+            mode,
+            options
+        }
+
+        ConfigBuilder( [
+            {
+                label: 'Mode',
+                icon: '<i class="fa-solid fa-square-binary"></i>',
+                type: 'select',
+                options: {
+                    shell: 'Shell',
+                    ssh: 'SSH',
+                    serial: 'Serial',
+                    telnet: 'Telnet'
+                },
+                selected: result.mode,
+                callback: mode => {
+                    result.mode = mode;
+                    result.options = PRESET_DEFAULTS[ result.mode ];
+                    constructPresetBuilder( optionsWrapper, result )
+                }
+            }
+        ], parent )
+
+        const optionsWrapper = $qn( '.w.v', parent );
+        constructPresetBuilder( optionsWrapper, result );
+        return result;
+    }
+
     const instanceMenu = ( ) => {
         const modal = modalOpen( {
             title: 'New instance'
         } );
 
-        let mode = 'shell';
-        let options = { }
-
-        const kvMode = KV( {
-            label: 'Mode',
-            icon: '<i class="fa-solid fa-square-binary"></i>'
-        }, modal );
-
-        buildSelect( {
-            options: {
-                serial: 'Serial',
-                shell: 'Shell',
-                ssh: 'SSH',
-                telnet: 'Telnet'
-            },
-            callback: async selected => {
-                mode = selected;
-                optionsWrapper.innerHTML = null;
-                switch( mode ) {
-                    case 'shell':
-                        options = {
-                            cwd: CONFIG.startingDirectory,
-                            file: '',
-                            shell: CONFIG.shell
-                        }
-
-                        const kvShell = KV( {
-                            label: 'Shell',
-                            icon: '<i class="fa-solid fa-terminal"></i>'
-                        }, optionsWrapper );
-                        const shellInput = $n( {
-                            tag: 'input',
-                            parent: kvShell,
-                            type: 'text',
-                            value: options.shell,
-                            onchange: ( ) => options.shell = shellInput.value
-                        } );
-
-                        const kvCwd = KV( {
-                            label: 'Working directory',
-                            icon: '<i class="fa-solid fa-folder"></i>'
-                        }, optionsWrapper );
-                        const cwdButton = $n( {
-                            tag: 'button',
-                            parent: kvCwd,
-                            text: options.cwd,
-                            onclick: async ( ) => {
-                                const directory = await send( 'selectDirectory' );
-                                if( !directory ) return;
-                                options.cwd = directory;
-                                cwdButton.innerText = directory;
-                            }
-                        } );
-                        break;
-                    case 'ssh': {
-                        options = {
-                            host: '',
-                            port: 22,
-                            username: '',
-                            password: ''
-                        }
-
-                        const kvHost = KV( {
-                            label: 'Host',
-                            icon: '<i class="fa-solid fa-server"></i>'
-                        }, optionsWrapper );
-                        const hostInput = $n( {
-                            tag: 'input',
-                            type: 'text',
-                            parent: kvHost,
-                            placeholder: 'localhost',
-                            onchange: ( ) => options.host = hostInput.value
-                        } );
-
-                        const kvPort = KV( {
-                            label: 'Port',
-                            icon: '<i class="fa-solid fa-hashtag"></i>'
-                        }, optionsWrapper );
-                        const portInput = $n( {
-                            tag: 'input',
-                            type: 'number',
-                            value: options.port,
-                            parent: kvPort,
-                            onchange: ( ) => options.port = portInput.value
-                        } );
-
-                        const kvUsername = KV( {
-                            label: 'Username',
-                            icon: '<i class="fa-solid fa-user"></i>'
-                        }, optionsWrapper );
-                        const usernameInput = $n( {
-                            tag: 'input',
-                            type: 'text',
-                            parent: kvUsername,
-                            placeholder: os.userInfo( ).username,
-                            onchange: ( ) => options.username = usernameInput.value
-                        } );
-
-                        const kvPassword = KV( {
-                            label: 'Password',
-                            icon: '<i class="fa-solid fa-key"></i>'
-                        }, optionsWrapper );
-                        const passwordInput = $n( {
-                            tag: 'input',
-                            type: 'password',
-                            parent: kvPassword,
-                            placeholder: 'supersecretpassword',
-                            onchange: ( ) => options.password = passwordInput.value
-                        } );
-                        break;
-                    }
-                    case 'serial':
-                        options = {
-                            path: '',
-                            baudRate: 115200
-                        }
-                        const devices = await send( 'serialDevices' );
-                        const kvDevice = KV( {
-                            label: 'Device',
-                            icon: '<i class="fa-solid fa-plug"></i>'
-                        }, optionsWrapper );
-
-                        const deviceList = devices.map( device => device.path );
-                        options.path = deviceList[ 0 ];
-
-                        buildSelect( {
-                            options: deviceList,
-                            parent: kvDevice,
-                            callback: path => options.path = path
-                        } );
-
-                        const kvBaudRate = KV( {
-                            label: 'Baudrate',
-                            icon: '<i class="fa-solid fa-clock-rotate-left"></i>'
-                        }, optionsWrapper );
-                        const baudrateInput = $n( {
-                            tag: 'input',
-                            type: 'number',
-                            value: 115200,
-                            parent: kvBaudRate,
-                            onchange: ( ) => {
-                                options.baudRate = baudrateInput.value;
-                            }
-                        } );
-                        break;
-                    case 'telnet': {
-                        options = {
-                            host: '',
-                            port: 23
-                        }
-
-                        const kvHost = KV( {
-                            label: 'Host',
-                            icon: '<i class="fa-solid fa-server"></i>'
-                        }, optionsWrapper );
-                        const hostInput = $n( {
-                            tag: 'input',
-                            type: 'text',
-                            parent: kvHost,
-                            placeholder: 'localhost',
-                            onchange: ( ) => options.host = hostInput.value
-                        } );
-
-                        const kvPort = KV( {
-                            label: 'Port',
-                            icon: '<i class="fa-solid fa-hashtag"></i>'
-                        }, optionsWrapper );
-                        const portInput = $n( {
-                            tag: 'input',
-                            type: 'number',
-                            value: options.port,
-                            parent: kvPort,
-                            onchange: ( ) => options.port = portInput.value
-                        } );
-                        break;
-                    }
-                }
-            },
-            parent: kvMode
-        } );
-
-        const optionsWrapper = $qn( '.w.v', modal );
+        const result = presetBuilder( modal );
 
         $n( {
             tag: 'button',
@@ -1816,7 +1547,7 @@
             text: 'Start instance',
             onclick: ( ) => {
                 modalClose( );
-                new Instance( mode, options );
+                new Instance( result.mode, result.options );
             }
         } );
     }
@@ -1851,7 +1582,6 @@
 
         for( const id in CONFIG.presets ) {
             const preset = CONFIG.presets[ id ];
-            console.log( preset );
             send( 'presetBind', {
                 combination: preset.bind,
                 id,
@@ -1861,71 +1591,5 @@
     }
 
     initialize( );
-
-    const buildContextMenu = ( parent, options ) => {
-        for( const option in options ) {
-            const value = options[ option ];
-            if( typeof value == 'function' ) {
-                $n( {
-                    tag: 'div',
-                    class: 'context-option',
-                    parent,
-                    text: option,
-                    onclick: value
-                } );
-            }
-            if( typeof value == 'object' ) {
-                const item = $n( {
-                    tag: 'div',
-                    class: 'context-option',
-                    parent,
-                    text: option
-                } );
-                const sub = $n( {
-                    tag: 'div',
-                    class: 'context-menu sub',
-                    parent: item
-                } );
-                buildContextMenu( sub, value );
-            }
-        }
-    }
-
-    const ContextMenu = ( element, options ) => {
-        element.onmousedown = event => {
-            if( event.which != 3 ) return;
-            event.preventDefault( );
-            event.stopPropagation( );
-            UI.contextMenu.style.left = event.clientX + 'px';
-            UI.contextMenu.style.top = event.clientY + 'px';
-            UI.contextMenu.classList.add( 'active' );
-            UI.contextMenu.innerHTML = null;
-
-            buildContextMenu( UI.contextMenu, options );
-        }
-    }
-
-    window.onmousedown = event => {
-        if( event.which == 3 ) {
-            UI.contextMenu.classList.remove( 'active' );
-        }
-    }
-
-    window.onclick = event => UI.contextMenu.classList.remove( 'active' );
-
-    window.onmousemove = event => {
-        const element = event.target;
-
-        UI.tooltip.style.top = event.y + 'px';
-        UI.tooltip.style.left = event.x + 'px';
-        if( !element.hasAttribute( 'tooltip' ) ) {
-            UI.tooltip.classList.remove( 'active' );
-            return;
-        }
-
-        const tooltip = element.getAttribute( 'tooltip' );
-        UI.tooltip.innerText = tooltip;
-        UI.tooltip.classList.add( 'active' );
-    }
 
 } )( );

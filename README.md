@@ -16,9 +16,7 @@ A drop-down terminal for Windows inspired by Guake. Built with Electron, Xterm.j
 *   **Relative Positioning:** Unlike standard fixed-width terminals, WinGuake offers full position and size adjustments that scale **relatively** to your screen size.
 *   **Ghost Mode 👻:** Hold down your assigned keybind to make the window highly translucent, unfocus it, and enable **click-through** functionality. Interact with the windows behind the terminal without hiding it.
 *   **Tabbed Instances:** Manage multiple shell sessions within a single window. Internally powered by `node-pty` for a true native terminal feel.
-*   **Native Windows Integration:** 
-    *   **PATH Support:** Adds itself to your system PATH during installation.
-    *   **Context Menu:** Right-click a **file** to run it in WinGuake or right-click a **directory** to open a new terminal instance in that location.
+*   **Native Windows Integration:** Right-click a **file** to run it in WinGuake or right-click a **directory** to open a new terminal instance in that location.
 
 <p align="center">
     <img src="https://s5.ezgif.com/tmp/ezgif-52f096d6eae3097b.gif" width="500" />
@@ -57,24 +55,23 @@ Customize your experience through the settings:
 
 ## 📦 Installation
 
-1.  Download the latest `.exe` from the [Releases](https://github.com/itzarty/winguake/releases) page.
-2.  Run the **NSIS Installer**.
-3.  (Optional) Check the "Add to Context Menu" and "Add to PATH" options during setup for the full experience.
+1.  Download the latest appropriate executable for your platform (`.exe`, `.deb`, `.AppImage`) from the [Releases](https://github.com/itzarty/winguake/releases) page.
+2.  Install the package.
+    * **AppImage** Run `./WinGuake-x.x.x.AppImage` (*no installation, requires FUSE*)
+    * **deb** Run `sudo dpkg -i ./winguake_x.x.x_arch.deb`, wait for the package to install
+    * **exe** Proceed through the *NSIS* installer
+3.  You're good to go!
 
 ## 🗺️ Roadmap
 
 - [x] Full Windows Support
 - [x] Linux Support
 - [x] Theme/Color Palette Support
-- [ ] Presets
+- [x] Presets
 - [ ] Advanced configuration
 - [ ] Layouts and themes
 - [ ] Tab groupping and labelling
 - [ ] Codebase clean-up
-
-## 🏗️ Technical Note
-
-WinGuake uses a single-window architecture. While the UI supports multiple tabs, each tab represents a unique `node-pty` instance. This ensures low overhead while providing the power of multiple terminal sessions.
 
 ---
 

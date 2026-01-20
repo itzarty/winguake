@@ -74,7 +74,7 @@
     const instances = { };
 
     const quit = ( ) => {
-        window.hide( );
+        hide( );
         for( const instance of Object.values( instances ) ) {
             try {
                 instance.kill( );
@@ -90,6 +90,7 @@
     let multipliers = { x: 0, y: 0, height: 0.5, width: 1 }
 
     const show = ( ) => {
+        window.setAlwaysOnTop( true );
         const cursor = screen.getCursorScreenPoint( );
         const display = screen.getDisplayNearestPoint( cursor );
 
@@ -107,11 +108,11 @@
         window.show( );
     }
 
-    window.on( 'show', ( ) => window.focus( ) );
+    const hide = ( ) => window.hide( );
 
     const toggle = ( ) => {
         if( window.isVisible( ) ) {
-            window.hide( );
+            hide( );
             return;
         }
         show( );
@@ -122,7 +123,7 @@
     const switches = {
         '-t': toggle,
         '-s': show,
-        '-h': window.hide
+        '-h': hide
     }
 
     app.on( 'second-instance', ( event, argv ) => {
@@ -262,7 +263,6 @@
                 instance.resize( cols, rows );
             }
         },
-        bell: ( ) => process.stdout.write( '\u0007' ),
         bind: ( { name, combination } ) => {
             if( !binds[ name ] ) return;
             binds[ name ].combination = combination.replaceAll( 'Control', 'Ctrl' ).split( '+' ).map( str => UiohookKey[ str ] );
@@ -304,6 +304,9 @@
                     exit: reason => {
                         delete instances[ id ];
                         exit( reason );
+                    },
+                    latency: latency => {
+                        // console.log( `Measured SSH latency: ${ latency }ms` );
                     }
                 }, options );
 

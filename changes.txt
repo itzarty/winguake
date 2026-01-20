@@ -1,11 +1,6 @@
-* fixed `bell` calls (no more segfaults under gtk/gdk)
-* improved window maximization/restoration keybind
-* font selection now in alphabetical order and without quotation marks
-* atomized some of the codebase
-* fixed folder selection (attaching dialog window to the parent window)
-* added terminal palette customization
-* added ITerm2 theme support
-* added presets (no scripting support)
-* added tab context menus
-* added tab color customization
-* extended modal functionality
+* swapped bell sound for a custom one
+* added font resize on `ctrl` + `mwheel`/`+`/`-`
+* added timestamp guttter
+* added SSH latency detection
+* added custom audio engine
+* dropped PATH script from NSIS

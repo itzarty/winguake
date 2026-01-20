@@ -566,3 +566,33 @@ button:hover {
     background-color: rgba( 0, 0, 0, 0.15 );
     color: #ffffff;
 }
+
+.gutter {
+    position: absolute;
+    top: 0px;
+    left: 0px;
+    bottom: 0px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background-color: rgba( 0, 0, 0, 0.5 );
+    pointer-events: none;
+    opacity: 0;
+    transition: 0.15s;
+}
+.gutter.active {
+    opacity: 1;
+}
+.gutter > span {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+    align-items: center;
+    font-size: 80%;
+    padding: 0px 0.15rem;
+}
+
+textarea {
+    display: flex;
+    flex-shrink: 0;
+}
