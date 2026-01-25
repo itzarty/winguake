@@ -13,7 +13,9 @@
     const path = require( 'path' );
     const AutoLaunch = require( 'auto-launch' );
     const { SerialPort } = require( 'serialport' );
-    const { UiohookKey } = require( 'uiohook-napi' );
+    const { UiohookKey, uIOhook } = require( 'uiohook-napi' );
+
+    const { windowManager } = require( 'node-window-manager' );
 
     const IPC = require( './web/ipc.js' );
     const Shortcuts = require( './src/shortcuts.js' );
@@ -29,7 +31,8 @@
 
     const info = {
         version: app.getVersion( ),
-        release: app.isPackaged
+        release: app.isPackaged,
+        platform: process.platform
     }
 
     let autoLaunch;
@@ -77,7 +80,7 @@
         hide( );
         for( const instance of Object.values( instances ) ) {
             try {
-                instance.kill( );
+                instance.kill( true );
             } catch( error ) {
                 console.error( 'Could not kill a running PTY', error );
             }
@@ -87,10 +90,13 @@
 
     window.loadFile( 'web/index.html' );
 
+    let returnTo;
+
     let multipliers = { x: 0, y: 0, height: 0.5, width: 1 }
 
     const show = ( ) => {
-        window.setAlwaysOnTop( true );
+        returnTo = windowManager.getActiveWindow( );
+
         const cursor = screen.getCursorScreenPoint( );
         const display = screen.getDisplayNearestPoint( cursor );
 
@@ -106,9 +112,26 @@
         window.setSize( Math.floor( width * multipliers.width ), Math.floor( height * multipliers.height ) );
 
         window.show( );
+        if( info.platform == 'win32' ) {
+            // don't tell microsoft about this one
+            uIOhook.keyToggle( UiohookKey.Alt, 'up' );
+        }
+        window.focus( );
     }
 
-    const hide = ( ) => window.hide( );
+    windowManager.on( 'window-activated', win => {
+        if( window.isFocused( ) ) return;
+        returnTo = win;
+    } );
+
+    window.on( 'focus', ( ) => window.show( ) );
+
+    const hide = ( ) => {
+        window.hide( );
+        if( !returnTo ) return;
+        returnTo.bringToTop( );
+        returnTo = null;   
+    }
 
     const toggle = ( ) => {
         if( window.isVisible( ) ) {
@@ -245,6 +268,10 @@
             const [ file ] = result.filePaths;
             answer( null, file );
         },
+        saveFile: async ( _, answer ) => {
+            const { filePath } = await dialog.showSaveDialog( window );
+            answer( null, filePath );
+        },
         resizeWindow: ( { state, direction } ) => {
             resizeEnable = state;
             if( resizeEnable ) {
@@ -296,17 +323,16 @@
 
             answer( !enabled );
         },
-        instance: async ( { id, mode, options, write, exit }, answer ) => {
+        instance: async ( { id, mode, options, write, exit, ready, announce }, answer ) => {
             try {
                 const interface = await Interface( {
                     mode,
                     write,
+                    ready,
+                    announce,
                     exit: reason => {
                         delete instances[ id ];
                         exit( reason );
-                    },
-                    latency: latency => {
-                        // console.log( `Measured SSH latency: ${ latency }ms` );
                     }
                 }, options );
 

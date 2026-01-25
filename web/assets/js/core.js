@@ -2,7 +2,6 @@
 
     const os = require( 'os' );
     const fs = require( 'fs' );
-    const plist = require( 'plist' );
     const IPC = require( './ipc.js' );
     const { getFonts } = require( 'font-list' );
 
@@ -11,6 +10,7 @@
     const { WebglAddon } = require( '@xterm/addon-webgl' );
     const { SearchAddon } = require( '@xterm/addon-search' );
     const { WebLinksAddon } = require( 'xterm-addon-web-links' );
+    const { SerializeAddon } = require( '@xterm/addon-serialize' );
 
     const { ipcRenderer, clipboard, shell } = require( 'electron' );
 
@@ -116,7 +116,7 @@
             omnibox: 'Control+Shift+P',
             search: 'Control+Shift+F',
             copy: 'Control+Shift+C',
-            timestamps: 'Alt'
+            details: 'Alt'
         },
         bounding: {
             x: 0,
@@ -151,8 +151,8 @@
     correctConfig( config, DEFAULTS );
 
     const CONFIG = changeListener( config, {
-        font: ( ) => eachInstance( instance => instance.setFont( CONFIG.font.family, CONFIG.font.size ) ),
-        cursor: ( ) => eachInstance( instance => instance.terminal.options.cursorStyle = CONFIG.cursor ),
+        font: ( ) => Instances.forEach( instance => instance.setFont( CONFIG.font.family, CONFIG.font.size ) ),
+        cursor: ( ) => Instances.forEach( instance => instance.terminal.options.cursorStyle = CONFIG.cursor ),
         opacity: ( ) => setOpacity( CONFIG.opacity ),
         palette: ( ) => reloadPalette( ),
         palettes: ( ) => reloadPalette( ),
@@ -172,18 +172,18 @@
         modalBack: $s( '.modal-back' ),
         modalAction: $s( '.modal-action' ),
         modalClose: $s( '.modal-close' ),
-        wrappers: $s( '.wrappers' ),
-        tabs: $s( '.tabs' ),
+        wrapperGroups: $s( '.wrapper-groups' ),
+        tabGroups: $s( '.tab-groups' ),
         boundaries: {
             top: $s( '.boundary.top' ),
             bottom: $s( '.boundary.bottom' ),
             left: $s( '.boundary.left' ),
             right: $s( '.boundary.right' )
         },
-        omniboxWrapper: $s( '.omnibox-wrapper' ),
-        omnibox: $s( '.omnibox' ),
-        searchbox: $s( '.searchbox' ),
-        boundaryActive: ( ) => $s( '.boundary.active' )
+        boundaryActive: ( ) => $s( '.boundary.active' ),
+        inputbarWrapper: $s( '.inputbar-wrapper' ),
+        inputbar: $s( '.inputbar' ),
+        inputbarIcon: $s( '.inputbar-icon' )
     }
 
     const Language = {
@@ -217,7 +217,7 @@
             CONFIG.palette = -1;
             return;
         }
-        for( const instance of Object.values( instances ) ) {
+        for( const instance of Instances ) {
             instance.terminal.options.theme = DEFAULT_PALETTE;
             instance.terminal.options.theme = palette;
         }
@@ -325,26 +325,142 @@
         modals.splice( 0 );
         $s( '.modal-body.active' )?.remove( );
 
-        activeInstance.activate( );
+        activeInstance.focus( );
     }
 
     UI.modalClose.onclick = UI.modalWrapper.onclick = modalClose;
     UI.modal.onclick = event => event.stopPropagation( );
-    
-    UI.omniboxWrapper.onclick = ( ) => UI.omniboxWrapper.classList.remove( 'active' );
-    UI.omnibox.onclick = event => event.stopPropagation( );
 
-    const sortable = new Sortable( UI.tabs, {
-        animation: 150,
-        ghostClass: 'ghost'
-    } );
+    const Groups = [ ];
+    let activeGroup = null;
 
-    const instances = { };
-    let activeInstance;
+    const Instances = [ ];
 
-    const eachInstance = callback => {
-        for( const id in instances ) callback( instances[ id ] );
+    class Group {
+        constructor( mode, options ) {
+            this.instances = [ ];
+            this.activeInstance = null;
+            
+            this.tabGroupElement = $qn( '.tab-group', UI.tabGroups );
+            this.tabElement = $qn( '.tabs', this.tabGroupElement );
+            
+            if( Groups.length != 0 ) {
+                $qn( '.wrapper-separator', UI.wrapperGroups );
+            }
+
+            let weight = 1;
+            if( Groups.length > 0 ) {
+                let totalWeight = 0;
+                for( const { wrapperElement } of Groups ) {
+                    totalWeight += parseFloat( wrapperElement.style.flexGrow || 1 );
+                }
+                weight = totalWeight / Groups.length;
+            }
+
+            this.wrapperElement = $qn( '.wrapper-group', UI.wrapperGroups );
+            this.wrapperElement.style.flexGrow = weight;
+ 
+            $n( {
+                tag: 'div',
+                class: 'btn',
+                parent: this.tabGroupElement,
+                html: '<i class="fa-solid fa-plus"></i>',
+                onclick: event => {
+                    if( event.shiftKey ) {
+                        new Group( );
+                        return;
+                    }
+                    if( event.ctrlKey ) {
+                        instanceMenu( this );
+                        return;
+                    }
+                    new Instance( undefined, undefined, this );
+                }
+            } );
+
+            this.sortable = new Sortable( this.tabElement, {
+                group: 'tabs',
+                animation: 150,
+                ghostClass: 'ghost',
+                draggable: '.tab',
+                fallbackOnBody: true,
+                swapThreshold: 0.65,
+                invertSwap: true,
+                onAdd: this.moveHandler
+            } );
+
+            Groups.push( this );
+
+            new Instance( mode, options, this );
+        }
+        moveHandler = event => {
+            if( event.from == event.to ) return;
+            const instance = Instances.find( instance => instance.tabElement == event.item );
+            this.wrapperElement.appendChild( instance.wrapperElement );
+            this.add( instance );
+
+            const group = Groups.find( group => group.tabElement == event.from );
+            group.remove( instance );
+
+            instance.focus( );
+        }
+        add( instance ) {
+            instance.group = this;
+            this.instances.push( instance );
+        }
+        remove( instance ) {
+            const index = this.instances.indexOf( instance );
+            this.instances.splice( index, 1 );
+            if( this.instances.length == 0 ) {
+                if( Groups.length == 1 ) {
+                    new Instance( null, null, this );
+                } else {
+                    this.dispose( );
+                }
+                return;
+            }
+            this.focus( this.instances.at( -1 ) );
+        }
+        dispose( ) {
+            const index = Groups.indexOf( this );
+            Groups.splice( index, 1 );
+
+            this.sortable.destroy( );
+
+            this.wrapperElement?.previousElementSibling.remove( );
+            this.tabGroupElement.remove( );
+            this.wrapperElement.remove( );
+
+            if( Groups.length == 0 ) {
+                new Group( );
+            } else {
+                Groups[ 0 ].focus( );
+            }
+        }
+        focus( instance, activate = true ) {
+            if( !instance ) {
+                instance = this.activeInstance;
+            }
+
+            if( activeGroup != this ) {
+                activeGroup?.wrapperElement.classList.remove( 'active' );
+
+                activeGroup = this;
+                this.wrapperElement.classList.add( 'active' );
+            }
+
+            if( this.activeInstance && this.activeInstance != instance ) {
+                this.activeInstance.blur( );
+            }
+
+            this.activeInstance = instance;
+            if( activate ) this.activeInstance.activate( );
+
+            activeInstance = instance;
+       }
     }
+
+    let activeInstance;
 
     class TimestampGutter {
         constructor( terminal ) {
@@ -394,11 +510,17 @@
     }
 
     class Instance {
-        constructor( mode, options ) {
+        constructor( mode, options, group = activeGroup ) {
             this.id = Date.now( );
             this.mode = mode;
             this.options = options;
+            this.group = group;
             this.title = this.mode;
+
+            this.report = { }
+
+            this.readyState = 0;
+            this.readyListeners = [ ];
 
             this.mode ||= 'shell';
             this.options ||= {
@@ -406,27 +528,27 @@
                 cwd: CONFIG.startingDirectory
             }
 
+            this.group.add( this );
+
             // prepare elements
 
             this.tabElement = $n( {
                 tag: 'div',
-                parent: UI.tabs,
-                class: 'tab red',
-                onclick: this.activate
+                parent: this.group.tabElement,
+                class: 'tab',
+                onclick: this.focus
             } );
+
+            this.titleWrapper = $qn( '.tab-title', this.tabElement );
 
             this.titleElement = $n( {
                 tag: 'span',
-                parent: this.tabElement,
-                text: this.title
+                parent: this.titleWrapper,
+                text: this.title,
+                tabindex: '0',
+                onblur: ( ) => { },
+                ondblclick: this.editTitle
             } );
-
-            const titleChange = ( ) => {
-                this.titleElement.contentEditable = true;
-                this.titleElement.focus( );
-            }
-
-            this.titleElement.ondblclick = titleChange;
 
             ContextMenu( this.tabElement, {
                 'Set tab color': {
@@ -454,7 +576,14 @@
                         input.click( );
                     }
                 },
-                'Set tab title': titleChange
+                'Set tab title': this.editTitle,
+                'Serialize framebuffer': async ( ) => {
+                    const data = this.serializeAddon.serialize( );
+                    const path = await send( 'saveFile' );
+                    fs.writeFile( path, data, ( ) => {
+                        console.log( 'Serialized and saved' );
+                    } );
+                }
             } );
 
             this.titleElement.onkeydown = event => {
@@ -467,13 +596,14 @@
                         return;
                     }
                     this.customTitle = title;
+                    this.changeTitle( this.title );
                     return;
                 }
             }
 
             this.closeElement = $n( {
                 tag: 'div',
-                class: 'close',
+                class: 'tab-close',
                 parent: this.tabElement,
                 html: '<i class="fa-solid fa-xmark"></i>',
                 onclick: event => {
@@ -482,11 +612,9 @@
                 }
             } );
 
-            this.wrapperElement = $n( {
-                tag: 'div',
-                parent: UI.wrappers,
-                class: 'wrapper'
-            } );
+            this.wrapperElement = $qn( '.wrapper', this.group.wrapperElement );
+            this.reportElement = $qn( '.report', this.wrapperElement );
+            this.loaderElement = $qn( '.loader', this.wrapperElement, '<i class="fa-solid fa-circle-notch"></i>' );
 
             // terminal configuration
 
@@ -521,6 +649,9 @@
             this.searchAddon = new SearchAddon( );
             this.terminal.loadAddon( this.searchAddon );
 
+            this.serializeAddon = new SerializeAddon( );
+            this.terminal.loadAddon( this.serializeAddon );
+
             this.terminal.open( this.wrapperElement );
 
             this.timestampGutter = new TimestampGutter( this.terminal );
@@ -533,7 +664,6 @@
 
             // events
 
-            this.terminal.onData( this.out );
             this.terminal.onTitleChange( this.changeTitle );
             this.terminal.onBell( this.bell );
 
@@ -545,7 +675,13 @@
                 this.setFont( false, size );
             } );
 
+            this.terminal.element.addEventListener( 'click', ( ) => {
+                this.focus( false );
+            } );
+
             this.terminal.attachCustomKeyEventHandler( event => {
+                this.focus( false );
+
                 if( !event.ctrlKey ) return;
                 if( event.key == '+' ) {
                     const size = this.terminal.options.fontSize + 1;
@@ -566,67 +702,108 @@
 
             // initialize
 
-            instances[ this.id ] = this;
+            Instances.push( this );
             this.initialize( );
-            this.activate( );
+            this.focus( );
         }
         initialize = async ( ) => {
-            this.SOL = true;
             this.ipc = await send( 'instance', {
                 id: this.id,
                 mode: this.mode,
                 options: this.options,
-                // callbacks
+                announce: this.announce,
                 write: data => this.in( data ),
                 exit: reason => {
                     console.log( reason );
                     this.destroy( );
+                },
+                ready: ( ) => {
+                    this.terminal.onData( this.out );
+                    this.ready( ); // Interface ready
                 }
             } );
+            this.ready( ); // IPC ready
+        }
+        ready = callback => {
+            if( !callback ) {
+                this.readyState++;
+                if( this.readyState != 2 ) return; // IPC & Interface ready
+                this.resize( );
+                animOut( this.loaderElement );
+                for( const callback of this.readyListeners ) callback( );
+
+                const date = new Date( );
+                const datetime = `${ date.getDate( ) }. ${ date.getMonth( ) + 1 }. ${ date.getFullYear( ) } @ ${ date.getHours( ).toString( ).padStart( 2, '0' ) }:${ date.getMinutes( ).toString( ).padStart( 2, '0' ) }:${ date.getSeconds( ).toString( ).padStart( 2, '0' ) }`;
+                this.announce( 'Initialized', datetime );
+                return;
+            }
+            this.readyListeners.push( callback );
+        }
+        announce = ( issue, value ) => {
+            this.report[ issue ] = value;
+
+            this.reportElement.innerHTML = null;
+            for( const issue in this.report ) {
+                const value = this.report[ issue ];
+                $qn( 'span', this.reportElement, `${ issue }: ${ value }` );
+            }
         }
         linkHandler = uri => {
             shell.openExternal( uri );
         }
         in = data => this.terminal.write( data )
-        out = data => this.ipc.write( data )
-        changeTitle = title => {
+        out = data => {
+            if( !this.ipc ) return;
+            this.ipc.write( data )
+        }
+        changeTitle = ( title = 'Untitled' ) => {
+            console.log( title );
             this.title = title.split( '\\' ).at( -1 );
-            this.titleElement.innerText = this.customTitle || this.title;
 
-            const duplicates = [ ];
-            for( const id in instances ) {
-                const instance = instances[ id ];
-                if( instance.title != this.title ) continue;
-                duplicates.push( {
-                    id,
-                    element: instance.titleElement
-                } );
+            // title template
+            let finalTitle;
+            if( this.customTitle ) {
+                finalTitle = this.customTitle.replaceAll( '%t', this.title );
+            } else {
+                finalTitle = this.title;
             }
 
+            this.titleElement.innerText = finalTitle;
+
+            const duplicates = Instances.filter( instance => instance.title == this.title );
             if( duplicates.length == 1 ) return;
+
             const ordered = duplicates.sort( ( a, b ) => a.id - b.id );
             for( let i = 0; i < ordered.length; i++ ) {
-                ordered[ i ].element.innerText = this.title + ` (${ i + 1 })`
+                ordered[ i ].titleElement.innerText = this.title + ` (${ i + 1 })`
             }
+        }
+        editTitle = ( ) => {
+            this.titleElement.contentEditable = true;
+            this.titleElement.setAttribute( 'tabindex', '0' );
+            this.titleElement.focus( );
         }
         changeColor = color => this.tabElement.style.backgroundColor = color ? color + '4f' : ''
         bell = ( ) => {
             audioEngine.play( 'bell' );
+            if( activeInstance != this ) this.tabElement.classList.add( 'bell' );
+        }
+        blur = ( ) => {
+            this.tabElement.classList.remove( 'active' );
+            this.wrapperElement.classList.remove( 'active' );
+            this.terminal.blur( );
+        }
+        focus = activate => {
+            this.group.focus( this, activate );
         }
         activate = ( ) => {
-            activeInstance = this;
-
-            const activeTab = $s( '.tab.active' );
-            if( activeTab ) activeTab.classList.remove( 'active' );
+            activeInstance = this; // legacy
 
             this.tabElement.classList.add( 'active' );
-
-            const activeWrapper = $s( '.wrapper.active' );
-            if( activeWrapper ) activeWrapper.classList.remove( 'active' );
-
             this.wrapperElement.classList.add( 'active' );
-
             this.terminal.focus( );
+
+            this.tabElement.classList.remove( 'bell' );
         }
         resize = ( ) => {
             if( this.wrapperElement.offsetHeight < 1 || this.wrapperElement.offsetWidth < 1 ) return;
@@ -645,18 +822,18 @@
         }
         destroy = ( ) => {
             this.terminal.dispose( );
-            this.tabElement.remove( );
+            animOut( this.tabElement );
             this.wrapperElement.remove( );
-            delete instances[ this.id ];
 
-            const dInstances = Object.values( instances );
-            for( const instance of dInstances ) instance.changeTitle( instance.title );
-            if( dInstances.length == 0 ) {
-                new Instance( );
-                return;
+            const index = Instances.indexOf( this.id );
+            Instances.splice( index, 1 );
+
+            this.group.remove( this );
+
+            for( const instance of Instances ) {
+                if( !instance.title ) return; // lingering instances
+                instance.changeTitle( instance.title );
             }
-
-            dInstances.at( -1 ).activate( );
         }
         kill = ( ) => killHandler( this.ipc )
     }
@@ -690,56 +867,38 @@
 
         if( event.key == 'Escape' ) {
             modalClose( );
-            UI.omniboxWrapper.classList.remove( 'active' );
-            UI.searchbox.classList.remove( 'active' );
+            UI.inputbarWrapper.classList.remove( 'active' );
+            activeInstance.terminal.focus( );
             return;
         }
 
         const combination = keysDown.join( '+' );
 
+        // Copy to clipboard
+        if( combination == CONFIG.binds.copy ) {
+            const selection = activeGroup.activeInstance.terminal.getSelection( );
+            if( !selection ) return;
+
+            clipboard.writeText( selection );
+            return;
+        }
+
         // Timestamps
-        if( combination == CONFIG.binds.timestamps ) {
+        if( combination == CONFIG.binds.details ) {
             activeInstance.timestampGutter.show( );
+            activeInstance.reportElement.classList.add( 'active' );
             return;
         }
 
         // Omnibox
         if( combination == CONFIG.binds.omnibox ) {
-            UI.omniboxWrapper.classList.toggle( 'active' );
-            UI.omnibox.value = '';
-            UI.omnibox.focus( );
+            omnibox( );
             return;
         }
 
         // Search
         if( combination == CONFIG.binds.search ) {
-            UI.searchbox.classList.toggle( 'active' );
-            UI.searchbox.value = '';
-            UI.searchbox.focus( );
-            return;
-        }
-
-        // Search handling
-        if( UI.searchbox == document.activeElement ) {
-            const text = UI.searchbox.value;
-            if( combination == 'Shift+Enter' ) {
-                event.preventDefault( );
-                activeInstance.searchAddon.findPrevious( text );
-                return;
-            }
-            if( combination == 'Enter' ) {
-                event.preventDefault( );
-                activeInstance.searchAddon.findNext( text );
-                return;
-            }
-        }
-
-        // Copy to clipboard
-        if( combination == CONFIG.binds.copy ) {
-            const selection = activeInstance?.terminal.getSelection( );
-            if( !selection ) return;
-
-            clipboard.writeText( selection );
+            search( );
             return;
         }
     }
@@ -748,40 +907,14 @@
         const combination = keysDown.join( '+' );
 
         // Timestamps
-        if( combination == CONFIG.binds.timestamps ) {
+        if( combination == CONFIG.binds.details ) {
             activeInstance.timestampGutter.hide( );
+            activeInstance.reportElement.classList.remove( 'active' );
             return;
         }
 
         const index = keysDown.indexOf( event.key );
         if( index != -1 ) keysDown.splice( index, 1 );
-
-        // Search handling
-        if( UI.searchbox == document.activeElement ) {
-            if( event.key.length != 1 ) return;
-            const text = UI.searchbox.value;
-            activeInstance.searchAddon.findNext( text );
-        }
-
-        // Omnibox handling
-        if( UI.omnibox == document.activeElement ) {
-            if( event.key != 'Enter' ) return;
-            UI.omniboxWrapper.classList.remove( 'active' );
-            activeInstance.terminal.focus( );
-
-            // EXPRESSION PARSING
-
-            const command = UI.omnibox.value;
-            const lowercase = command.toLowerCase( );
-            const [ root, ... args ] = lowercase.split( ' ' );
-
-            switch( root ) {
-                case 'ssh':
-                    const [ host, username, password ] = args;
-                    new Instance( 'ssh', { host, username, password } );
-                    break;
-            }
-        }
     }
 
     const getKeyCombination = ( ) => new Promise( resolve => {
@@ -1011,12 +1144,11 @@
             return;
         }
         const instance = new Instance( preset.mode, preset.options );
-        // TODO: add scripting
-        setTimeout( () => {
-            instance.ipc.write( preset.script );
-        }, 1000 );
         instance.changeTitle( preset.tabTitle );
         instance.changeColor( preset.tabColor );
+        instance.ready( ( ) => {
+            instance.ipc.write( preset.script );
+        } );
     }
 
     const editPreset = id => {
@@ -1282,6 +1414,62 @@
                 callback: sink => CONFIG.audio.sink = sink
             },
             {
+                label: 'Position & scale',
+                type: 'section'
+            },
+            {
+                label: 'Width',
+                icon: '<i class="fa-solid fa-arrows-left-right"></i>',
+                type: 'range',
+                min: 0.1,
+                max: 1,
+                step: 0.01,
+                value: CONFIG.bounding.width,
+                callback: width => {
+                    CONFIG.bounding.width = Number( width );
+                    send( 'bounding', CONFIG.bounding );
+                }
+            },
+            {
+                label: 'Height',
+                icon: '<i class="fa-solid fa-arrows-up-down"></i>',
+                type: 'range',
+                min: 0.1,
+                max: 1,
+                step: 0.01,
+                value: CONFIG.bounding.height,
+                callback: height => {
+                    CONFIG.bounding.height = Number( height );
+                    send( 'bounding', CONFIG.bounding );
+                }
+            },
+            {
+                label: 'Top offset',
+                icon: '<i class="fa-solid fa-arrow-down"></i>',
+                type: 'range',
+                min: 0,
+                max: 0.9,
+                step: 0.01,
+                value: CONFIG.bounding.y,
+                callback: y => {
+                    CONFIG.bounding.y = Number( y );
+                    send( 'bounding', CONFIG.bounding );
+                }
+            },
+            {
+                label: 'Left offset',
+                icon: '<i class="fa-solid fa-arrow-right"></i>',
+                type: 'range',
+                min: 0,
+                max: 0.9,
+                step: 0.01,
+                value: CONFIG.bounding.x,
+                callback: x => {
+                    CONFIG.bounding.x = Number( x );
+                    send( 'bounding', CONFIG.bounding );
+                }
+            },
+            {
                 label: 'Keyboard shortcuts',
                 type: 'section'
             }
@@ -1333,15 +1521,15 @@
 
         const kvOmnibox = KV( {
             label: 'Show omnibox',
-            icon: '<i class="fa-solid fa-star"></i>'
+            icon: '<i class="fa-solid fa-wand-magic-sparkles"></i>'
         }, modal );
         renderBinder( 'omnibox', kvOmnibox );
 
-        const kvTimestamps = KV( {
-            label: 'Show timestamps',
-            icon: '<i class="fa-solid fa-clock"></i>'
+        const kvDetails = KV( {
+            label: 'Show details',
+            icon: '<i class="fa-solid fa-info"></i>'
         }, modal );
-        renderBinder( 'timestamps', kvTimestamps );
+        renderBinder( 'details', kvDetails );
 
         // Info
         $qn( 'span.separator', modal, `WinGuake v${ info.version } (${ info.release ? 'Release' : 'Debug' })` );
@@ -1390,9 +1578,9 @@
                 const directory = stat.isDirectory( );
 
                 if( directory ) {
-                    this.options.cwd = target;
+                    options.cwd = target;
                 } else {
-                    this.options.file = target;
+                    options.file = target;
                 }
             }
             new Instance( 'shell', options );
@@ -1400,7 +1588,10 @@
         kill: ( ) => activeInstance.kill( )
     }, console.error );
 
-    window.onfocus = ( ) => activeInstance.terminal.focus( );
+    window.onfocus = ( ) => {
+        keysDown.splice( 0, keysDown.length );
+        activeInstance.terminal.focus( );
+    }
 
     const constructPresetBuilder = ( wrapper, result ) => {
         wrapper.innerHTML = null;
@@ -1534,7 +1725,7 @@
         return result;
     }
 
-    const instanceMenu = ( ) => {
+    const instanceMenu = group => {
         const modal = modalOpen( {
             title: 'New instance'
         } );
@@ -1547,7 +1738,7 @@
             text: 'Start instance',
             onclick: ( ) => {
                 modalClose( );
-                new Instance( result.mode, result.options );
+                new Instance( result.mode, result.options, group );
             }
         } );
     }
@@ -1558,15 +1749,6 @@
 
         setOpacity( CONFIG.opacity );
 
-        btn_preferences.onclick = preferences;
-        btn_instance.onclick = async ( ) => {
-            if( keysDown.includes( 'Shift' ) ) {
-                instanceMenu( );
-                return;
-            }
-            new Instance( );
-        }
-
         for( const bind in CONFIG.binds ) {
             send( 'bind', {
                 name: bind,
@@ -1576,7 +1758,9 @@
 
         send( 'bounding', CONFIG.bounding );
 
-        new Instance( );
+        btn_preferences.onclick = preferences;
+
+        new Group( );
 
         await Fonts( ); // prevent delayed loads
 
@@ -1591,5 +1775,169 @@
     }
 
     initialize( );
+
+    const resizing = [ ];
+
+    window.addEventListener( 'mousedown', event => {
+        const target = event.target;
+        if( !target.classList.contains( 'wrapper-separator' ) ) return;
+
+        const groupA = target.previousElementSibling;
+        const groupB = target.nextElementSibling;
+
+        const index = $a( '.wrapper-group' ).indexOf( groupA );
+        const tabs = $a( '.tab-group' );
+
+        const [ tabA, tabB ] = tabs.slice( index, index + 2 );
+
+        resizing.push( groupA, groupB, tabA, tabB );
+    } );
+
+    window.addEventListener( 'mousemove', event => {
+        if( resizing.length != 4 ) return;
+
+        const [ groupA, groupB, tabA, tabB ] = resizing;
+
+        const rectA = groupA.getBoundingClientRect( );
+        const sepWidth = groupA.nextElementSibling.offsetWidth;
+
+        const sharedWidth = groupA.offsetWidth + groupB.offsetWidth;
+        const relativeX = event.clientX - rectA.left;
+        const adjustedX = relativeX - ( sepWidth / 2 );
+
+        const ratioA = clamp( adjustedX / sharedWidth, 0.25, 0.75 );
+        const ratioB = 1 - ratioA;
+
+        const weightA = parseFloat( groupA.style.flexGrow || 1 );
+        const weightB = parseFloat( groupB.style.flexGrow || 1 );
+        const sharedWeight = weightA + weightB;
+
+        const targetWeightA = ratioA * sharedWeight;
+        const targetWeightB = ratioB * sharedWeight;
+
+        groupA.style.flexGrow = tabA.style.flexGrow = targetWeightA;
+        groupB.style.flexGrow = tabB.style.flexGrow = targetWeightB;
+    } );
+
+    window.addEventListener( 'mouseup', ( ) => {
+        if( resizing.length == 0 ) return;
+        resizing.splice( 0, 4 );
+        activeInstance.terminal.focus( );
+    } );
+
+    const animOut = element => {
+        element.classList.add( 'out' );
+        element.onanimationend = ( ) => element.remove( );
+    }
+
+    const InputBar = ( { icon, placeholder = '', callback, spellcheck = false, grab = false, type = 'text', value = '' } ) => {
+        UI.inputbarIcon.innerHTML = icon;
+        UI.inputbarWrapper.classList.add( 'active' );
+        UI.inputbar.placeholder = placeholder;
+        UI.inputbar.spellcheck = spellcheck;
+        UI.inputbar.value = value;
+        UI.inputbar.type = type;
+        UI.inputbar.focus( );
+
+        if( grab ) {
+            return new Promise( resolve => {
+                UI.inputbar.onkeyup = event => {
+                    if( event.key != 'Enter' ) return;
+                    resolve( UI.inputbar.value );
+                    UI.inputbarWrapper.classList.remove( 'active' );
+                }
+            } );
+        }
+
+        UI.inputbar.onkeyup = event => callback( UI.inputbar.value, event );
+
+        return {
+            suggest: options => {
+                console.log( options );
+            }
+        }
+    }
+
+    const search = ( ) => {
+        let term = '';
+        InputBar( {
+            icon: '<i class="fa-solid fa-magnifying-glass"></i>',
+            placeholder: 'Search for anything...',
+            callback: ( value, event ) => {
+                if( event.shiftKey && event.key == 'Enter' ) {
+                    activeGroup.activeInstance.searchAddon.findPrevious( value );
+                    return;
+                }
+                if( event.key == 'Enter' ) {
+                    activeGroup.activeInstance.searchAddon.findNext( value );
+                    return;
+                }
+                activeGroup.activeInstance.searchAddon.findNext( value );
+            }
+        } );
+    }
+
+    const omnibox = ( ) => {
+        const { suggest } = InputBar( {
+            icon: '<i class="fa-solid fa-wand-magic-sparkles"></i>',
+            placeholder: 'What shall we do?',
+            callback: async ( value, event ) => {
+                if( event.key != 'Enter' ) return;
+                UI.inputbarWrapper.classList.remove( 'active' );
+                activeGroup.activeInstance.terminal.focus( );
+
+                // EXPRESSION PARSING
+
+                const lowercase = value.toLowerCase( );
+                const [ command, ... args ] = lowercase.split( ' ' );
+
+                switch( command ) {
+                    case 'serial': {
+                        const path = 'COM' + args[ 0 ];
+                        const baudRate = Number( args[ 1 ] ) || 115200;
+                        new Instance( 'serial', { path, baudRate } );
+                        break;
+                    }
+                    case 'ssh': {
+                        const host = await InputBar( {
+                            grab: true,
+                            icon: '<i class="fa-solid fa-server"></i>',
+                            placeholder: 'Host'
+                        } );
+                        const port = await InputBar( {
+                            grab: true,
+                            type: 'number',
+                            icon: '<i class="fa-solid fa-hashtag"></i>',
+                            placeholder: 'Port',
+                            value: 22
+                        } );
+                        const username = await InputBar( {
+                            grab: true,
+                            icon: '<i class="fa-solid fa-user"></i>',
+                            placeholder: 'Username'
+                        } );
+                        const password = await InputBar( {
+                            grab: true,
+                            type: 'password',
+                            icon: '<i class="fa-solid fa-lock"></i>',
+                            placeholder: 'Password'
+                        } );
+                        new Instance( 'ssh', { host, port, username, password } )
+                        break;
+                    }
+                    case 'telnet': {
+                        break;
+                    }
+                    default: {
+                        new Instance( 'shell', {
+                            shell: CONFIG.shell,
+                            cwd: value
+                        } );
+                        break;
+                    }
+                }
+            }
+        } );
+    }
 
 } )( );

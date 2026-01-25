@@ -19,10 +19,6 @@
         <span class="tooltip"></span>
         <div class="context-menu"></div>
         <div class="container">
-            <input type="text" class="searchbox" spellcheck="false" />
-            <div class="omnibox-wrapper">
-                <input type="text" class="omnibox" spellcheck="false" />
-            </div>
             <div class="modal-wrapper">
                 <div class="modal">
                     <div class="modal-header">
@@ -38,15 +34,22 @@
                 </div>
             </div>
             <div class="toolbar">
-                <div class="tabs"></div>
-                <div class="button" id="btn_instance">
-                    <i class="fa-solid fa-plus"></i>
+                <div class="inputbar-wrapper">
+                    <div class="inputbar-icon">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                    </div>
+                    <input class="inputbar" type="text" />
+                    <div class="inputbar-suggestions"></div>
                 </div>
-                <div class="button" id="btn_preferences">
-                    <i class="fa-solid fa-gear"></i>
+                <div class="tab-groups">
+                    <div class="controls">
+                        <div class="btn" id="btn_preferences">
+                            <i class="fa-solid fa-gear"></i>
+                        </div>
+                    </div>
                 </div>
             </div>
-            <div class="wrappers"></div>
+            <div class="wrapper-groups"></div>
             <div class="boundary top"></div>
             <div class="boundary bottom"></div>
             <div class="boundary left"></div>

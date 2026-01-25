@@ -1,6 +1,17 @@
-* swapped bell sound for a custom one
-* added font resize on `ctrl` + `mwheel`/`+`/`-`
-* added timestamp guttter
-* added SSH latency detection
-* added custom audio engine
-* dropped PATH script from NSIS
+* added initial splitview support
+* added visual bell notification
+* fixed instance killing and app quit
+* splitview resize support
+* base UI overhaul
+* fixed zombie kill calls
+* added `ready` interface calls
+    * loader will be shown until ready
+    * terminal will not be connected until ready
+* replaced the window focus/blur pipeline
+    * on Windows, `Alt` is emulated to force focus window on show
+    * attention is returned the the last active window manually
+* reworked omnibox
+* unified omnibox & search
+* added terminal serialization
+* added report/announce system
+* unified timestamp gutter trigger with report briefing

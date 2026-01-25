@@ -1,3 +1,5 @@
+const plist = require( 'plist' );
+
 const ConfigBuilder = ( entries, parent ) => {
     for( const entry of entries ) {
         if( entry.type == 'section' ) {

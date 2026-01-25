@@ -5,7 +5,7 @@ const { SerialPort } = require( 'serialport' );
 
 const psTree = require( 'ps-tree' );
 
-const IShell = ( { write, exit }, { file, cwd, shell } ) => {
+const IShell = ( { write, exit, ready }, { file, cwd, shell } ) => {
     const ptyProcess = pty.spawn( shell, file ? [ file ] : [ ], {
         name: 'xterm-color',
         cols: 80,
@@ -15,6 +15,8 @@ const IShell = ( { write, exit }, { file, cwd, shell } ) => {
 
     ptyProcess.onData( write );
     ptyProcess.onExit( exit );
+
+    ready( );
 
     return {
         write: data => ptyProcess.write( data ),
@@ -26,11 +28,11 @@ const IShell = ( { write, exit }, { file, cwd, shell } ) => {
 
             psTree( ptyProcess.pid, ( error, children ) => {
                 if( children.length > 0 ) {
-                    callback( false );
+                    if( callback ) callback( false );
                     return;
                 }
 
-                callback( true );
+                if( callback ) callback( true );
                 ptyProcess.kill( );
             } );
         },
@@ -38,7 +40,7 @@ const IShell = ( { write, exit }, { file, cwd, shell } ) => {
     }
 }
 
-const ISerial = ( { write, exit }, { path, baudRate } ) => {
+const ISerial = ( { write, exit, ready }, { path, baudRate } ) => {
     const port = new SerialPort( { path, baudRate } );
 
     const decoder = new TextDecoder( );
@@ -51,17 +53,19 @@ const ISerial = ( { write, exit }, { path, baudRate } ) => {
     port.on( 'close', exit );
     port.on( 'error', exit );
 
+    ready( );
+
     return {
         write: data => port.write( data ),
         kill: ( force, callback ) => {
             port.close( );
-            callback( true );
+            if( callback ) callback( true );
         },
         resize: ( ) => { }
     }
 }
 
-const ISSH = ( { write, exit, latency }, options ) => new Promise( resolve => {
+const ISSH = ( { write, exit, ready, announce }, options ) => new Promise( resolve => {
     const connection = new Client( );
 
     connection.on( 'ready', ( ) => {
@@ -74,9 +78,9 @@ const ISSH = ( { write, exit, latency }, options ) => new Promise( resolve => {
                 exit( error );
                 return;
             }
-
             let connected = true;
             const end = reason => {
+                if( !connected ) return;
                 connected = false;
                 exit( reason );
             }
@@ -84,7 +88,8 @@ const ISSH = ( { write, exit, latency }, options ) => new Promise( resolve => {
             stream.on( 'data', data => write( data ) );
             stream.on( 'close', end );
             connection.on( 'close', end );
-            connection.on( 'error', end );
+
+            ready( );
 
             // Latency detection
             connection.exec( 'cat', ( error, stream ) => {
@@ -95,7 +100,7 @@ const ISSH = ( { write, exit, latency }, options ) => new Promise( resolve => {
                     }
                     let start;
                     stream.once( 'data', ( ) => {
-                        latency( Date.now( ) - start );
+                        announce( 'Latency', `${ Date.now( ) - start }ms` );
                     } );
                     start = Date.now( );
                     stream.write( '\n' );
@@ -108,33 +113,31 @@ const ISSH = ( { write, exit, latency }, options ) => new Promise( resolve => {
                 write: data => stream.write( data ),
                 kill: ( force, callback ) => {
                     connection.end( );
-                    callback( true );
+                    if( callback ) callback( true );
                 },
                 resize: ( cols, rows ) => stream.setWindow( rows, cols )
             } );
         } );
     } );
 
-    connection.on( 'error', error => {
-        console.error( error );
-        exit( error );
-    } );
-
+    connection.on( 'error', exit );
     connection.connect( options );
 } );
 
-const ITelnet = ( { write, exit }, options ) => {
+const ITelnet = ( { write, exit, ready }, options ) => {
     const connection = new Telnet( );
 
     connection.on( 'data', write );
     connection.on( 'error', exit );
     connection.connect( options );
 
+    ready( );
+
     return {
         write: data => connection.send( data ),
         kill: ( force, callback ) => {
             connection.destroy( );
-            callback( true );
+            if( callback ) callback( true );
         },
         resize: ( ) => { }
     }

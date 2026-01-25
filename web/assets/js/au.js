@@ -197,3 +197,5 @@ Array.prototype.compare = function( array ) {
 	}
 	return true;
 }
+
+const clamp = ( v, min, max ) => Math.max( Math.min( v, max ), min );

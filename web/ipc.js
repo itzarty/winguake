@@ -36,7 +36,11 @@ class IPC {
 					args[ map.index ] = this.composeCallback( args[ map.index ] );
 				}
 			}
-			callback( ... args );
+			try {
+				callback( ... args );
+			} catch( error ) {
+				console.error( error );
+			}
 		} );
 	}
 
