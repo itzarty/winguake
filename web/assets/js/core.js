@@ -345,7 +345,7 @@
             this.tabElement = $qn( '.tabs', this.tabGroupElement );
             
             if( Groups.length != 0 ) {
-                $qn( '.wrapper-separator', UI.wrapperGroups );
+                this.separatorElement = $qn( '.wrapper-separator', UI.wrapperGroups );
             }
 
             let weight = 1;
@@ -427,7 +427,12 @@
 
             this.sortable.destroy( );
 
-            this.wrapperElement?.previousElementSibling.remove( );
+            if( this.separatorElement ) {
+                this.separatorElement.remove( );
+            } else {
+                Groups[ 0 ].separatorElement.remove( );
+                delete Groups[ 0 ].separatorElement;
+            }
             this.tabGroupElement.remove( );
             this.wrapperElement.remove( );
 
@@ -580,9 +585,7 @@
                 'Serialize framebuffer': async ( ) => {
                     const data = this.serializeAddon.serialize( );
                     const path = await send( 'saveFile' );
-                    fs.writeFile( path, data, ( ) => {
-                        console.log( 'Serialized and saved' );
-                    } );
+                    fs.writeFile( path, data, ( ) => { } );
                 }
             } );
 
@@ -757,7 +760,6 @@
             this.ipc.write( data )
         }
         changeTitle = ( title = 'Untitled' ) => {
-            console.log( title );
             this.title = title.split( '\\' ).at( -1 );
 
             // title template
@@ -1852,9 +1854,7 @@
         UI.inputbar.onkeyup = event => callback( UI.inputbar.value, event );
 
         return {
-            suggest: options => {
-                console.log( options );
-            }
+            suggest: console.log
         }
     }
 
