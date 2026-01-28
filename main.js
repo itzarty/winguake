@@ -1,5 +1,7 @@
 ( async ( ) => {
 
+    const Benchmark = require( './src/benchmark.js' );
+
     const {
         app,
         BrowserWindow,
@@ -32,7 +34,8 @@
     const info = {
         version: app.getVersion( ),
         release: app.isPackaged,
-        platform: process.platform
+        platform: process.platform,
+        target: process.argv.at( -1 )
     }
 
     let autoLaunch;

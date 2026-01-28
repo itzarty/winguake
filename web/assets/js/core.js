@@ -9,8 +9,12 @@
     const { FitAddon } = require( '@xterm/addon-fit' );
     const { WebglAddon } = require( '@xterm/addon-webgl' );
     const { SearchAddon } = require( '@xterm/addon-search' );
-    const { WebLinksAddon } = require( 'xterm-addon-web-links' );
+    const { WebLinksAddon } = require( '@xterm/addon-web-links' );
     const { SerializeAddon } = require( '@xterm/addon-serialize' );
+
+    const { ImageAddon } = require( '@xterm/addon-image' );
+    const { ProgressAddon } = require( '@xterm/addon-progress' );
+    const { LigaturesAddon } = require( 'xterm-addon-ligatures' );
 
     const { ipcRenderer, clipboard, shell } = require( 'electron' );
 
@@ -133,7 +137,8 @@
         audio: {
             sink: 'default',
             volume: 1
-        }
+        },
+        history: { }
     }
 
     const correctConfig = ( object, defaults ) => {
@@ -183,7 +188,10 @@
         boundaryActive: ( ) => $s( '.boundary.active' ),
         inputbarWrapper: $s( '.inputbar-wrapper' ),
         inputbar: $s( '.inputbar' ),
-        inputbarIcon: $s( '.inputbar-icon' )
+        inputbarIcon: $s( '.inputbar-icon' ),
+        inputbarSuggestions: $s( '.inputbar-suggestions' ),
+        inputbarTokens: $s( '.inputbar-tokens' ),
+        inputbarHint: $s( '.inputbar-hint' )
     }
 
     const Language = {
@@ -520,7 +528,6 @@
             this.mode = mode;
             this.options = options;
             this.group = group;
-            this.title = this.mode;
 
             this.report = { }
 
@@ -531,6 +538,24 @@
             this.options ||= {
                 shell: CONFIG.shell,
                 cwd: CONFIG.startingDirectory
+            }
+
+            switch( this.mode ) {
+                case 'ssh':
+                    this.title = `${ this.options.username }@${ this.options.host }:${ this.options.port }`;
+                    break;
+                case 'serial':
+                    this.title = `${ this.options.path }@${ this.options.baudRate }`;
+                    break;
+                case 'shell':
+                    this.title = this.options.cwd;
+                    break;
+                case 'telnet':
+                    this.title = `${ this.options.hostname }:${ this.options.port }`;
+                    break;
+                default:
+                    this.title = this.mode;
+                    break;
             }
 
             this.group.add( this );
@@ -544,6 +569,7 @@
                 onclick: this.focus
             } );
 
+            this.progressElement = $qn( '.tab-progress', this.tabElement );
             this.titleWrapper = $qn( '.tab-title', this.tabElement );
 
             this.titleElement = $n( {
@@ -625,12 +651,14 @@
                 cursorBlink: true,
                 fontFamily: CONFIG.font.family,
                 cursorStyle: CONFIG.cursor,
-                fontSize: CONFIG.font.size
+                fontSize: CONFIG.font.size,
+                allowProposedApi: true
             } );
 
             const palette = CONFIG.palette == -1 ? DEFAULT_PALETTE : CONFIG.palettes[ CONFIG.palette ].scheme;
-
             this.terminal.options.theme = palette;
+
+            this.terminal.options.theme.background = '#00000000';
 
             // addons
 
@@ -655,8 +683,48 @@
             this.serializeAddon = new SerializeAddon( );
             this.terminal.loadAddon( this.serializeAddon );
 
+            this.imageAddon = new ImageAddon( );
+            this.terminal.loadAddon( this.imageAddon );
+
+            this.progressAddon = new ProgressAddon( );
+            this.terminal.loadAddon( this.progressAddon );
+
+            this.ligaturesAddon = new LigaturesAddon( );
+
             this.terminal.open( this.wrapperElement );
 
+            this.terminal.parser.registerOscHandler( 7, console.log ); // CWD
+            this.terminal.parser.registerOscHandler( 52, console.log ); // Clipboard
+            this.terminal.parser.registerOscHandler( 133, console.log ); // I/O/P
+            this.terminal.parser.registerOscHandler( 1337, console.log ); // State
+
+            this.progressAddon.onChange( ( { state, value } ) => {
+                if( state == 0 ) { // -nothing-
+                    this.progressElement.classList.remove( 'marquee' );
+                    this.progressElement.classList.remove( 'paused' );
+                    this.progressElement.classList.remove( 'active' );
+                    return;
+                }
+                this.progressElement.classList.add( 'active' );
+                if( state == 1 ) {
+                    this.progressElement.style.width = value + '%';
+                    return;
+                }
+                if( state == 2 ) { // error
+                    this.progressElement.classList.add( 'error' );
+                    return;
+                }
+                if( state == 3 ) { // indeterminate
+                    this.progressElement.classList.add( 'marquee' );
+                    return;
+                }
+                if( state == 4 ) { // warning/paused
+                    this.progressElement.classList.add( 'paused' );
+                    return;
+                }
+            } );
+
+            this.terminal.loadAddon( this.ligaturesAddon );
             this.timestampGutter = new TimestampGutter( this.terminal );
 
             // transparency injection (not supported with webgl)
@@ -1762,7 +1830,10 @@
 
         btn_preferences.onclick = preferences;
 
-        new Group( );
+        new Group( 'shell', {
+            shell: CONFIG.shell,
+            cwd: info.target
+        } );
 
         await Fonts( ); // prevent delayed loads
 
@@ -1832,112 +1903,340 @@
         element.onanimationend = ( ) => element.remove( );
     }
 
-    const InputBar = ( { icon, placeholder = '', callback, spellcheck = false, grab = false, type = 'text', value = '' } ) => {
-        UI.inputbarIcon.innerHTML = icon;
+    const search = ( ) => {
+        UI.inputbarIcon.innerHTML = '<i class="fa-solid fa-magnifying-glass"></i>';
         UI.inputbarWrapper.classList.add( 'active' );
-        UI.inputbar.placeholder = placeholder;
-        UI.inputbar.spellcheck = spellcheck;
-        UI.inputbar.value = value;
-        UI.inputbar.type = type;
+        UI.inputbar.placeholder = 'Search for anything...';
+        UI.inputbar.type = 'text';
         UI.inputbar.focus( );
 
-        if( grab ) {
-            return new Promise( resolve => {
-                UI.inputbar.onkeyup = event => {
-                    if( event.key != 'Enter' ) return;
-                    resolve( UI.inputbar.value );
-                    UI.inputbarWrapper.classList.remove( 'active' );
-                }
-            } );
-        }
-
-        UI.inputbar.onkeyup = event => callback( UI.inputbar.value, event );
-
-        return {
-            suggest: console.log
-        }
-    }
-
-    const search = ( ) => {
-        let term = '';
-        InputBar( {
-            icon: '<i class="fa-solid fa-magnifying-glass"></i>',
-            placeholder: 'Search for anything...',
-            callback: ( value, event ) => {
-                if( event.shiftKey && event.key == 'Enter' ) {
-                    activeGroup.activeInstance.searchAddon.findPrevious( value );
-                    return;
-                }
-                if( event.key == 'Enter' ) {
-                    activeGroup.activeInstance.searchAddon.findNext( value );
-                    return;
-                }
-                activeGroup.activeInstance.searchAddon.findNext( value );
+        UI.inputbar.onkeyup = event => {
+            const value = UI.inputbar.value;
+            if( event.shiftKey && event.key == 'Enter' ) {
+                activeGroup.activeInstance.searchAddon.findPrevious( value );
+                return;
             }
-        } );
+            if( event.key == 'Enter' ) {
+                activeGroup.activeInstance.searchAddon.findNext( value );
+                return;
+            }
+            activeGroup.activeInstance.searchAddon.findNext( value );
+        }
     }
+
+    const commands = [
+        {
+            title: 'ssh',
+            handler: ( host, port, username, password ) => {
+                new Instance( 'ssh', { host, port, username, password } );
+            },
+            components: [
+                { 
+                    title: 'Hostname',
+                    type: 'text',
+                    default: '127.0.0.1',
+                    icon: '<i class="fa-solid fa-server"></i>'
+                },
+                { 
+                    title: 'Port',
+                    type: 'number',
+                    default: 22,
+                    icon: '<i class="fa-solid fa-hashtag"></i>'
+                },
+                { 
+                    title: 'Username',
+                    type: 'text',
+                    default: 'root',
+                    icon: '<i class="fa-solid fa-user"></i>'
+                },
+                {
+                    title: 'Password',
+                    type: 'password',
+                    icon: '<i class="fa-solid fa-lock"></i>'
+                }
+            ]
+        },
+        {
+            title: 'serial',
+            handler: ( path, baudRate ) => {
+                new Instance( 'serial', { path, baudRate } );
+            },
+            components: [
+                {
+                    title: 'Port',
+                    type: 'number',
+                    default: 1,
+                    icon: '<i class="fa-solid fa-hashtag"></i>'
+                },
+                {
+                    title: 'Baudrate',
+                    type: 'number',
+                    default: 9600,
+                    icon: '<i class="fa-solid fa-wave-square"></i>'
+                }
+            ]
+        },
+        {
+            title: 'shell',
+            handler: ( shell, cwd ) => {
+                new Instance( 'shell', { shell, cwd } );
+            },
+            components: [
+                {
+                    title: 'Shell',
+                    type: 'text',
+                    default: CONFIG.shell,
+                    icon: '<i class="fa-solid fa-terminal"></i>'
+                },
+                {
+                    title: 'Working directory',
+                    type: 'text',
+                    default: CONFIG.startingDirectory,
+                    icon: '<i class="fa-solid fa-folder-tree"></i>'
+                }
+            ]
+        }
+    ];
+
+    const fuse = new Fuse( commands, {
+        keys: [ 'title' ],
+        threshold: 0.4
+    } );
 
     const omnibox = ( ) => {
-        const { suggest } = InputBar( {
-            icon: '<i class="fa-solid fa-wand-magic-sparkles"></i>',
-            placeholder: 'What shall we do?',
-            callback: async ( value, event ) => {
-                if( event.key != 'Enter' ) return;
-                UI.inputbarWrapper.classList.remove( 'active' );
-                activeGroup.activeInstance.terminal.focus( );
+        UI.inputbarIcon.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i>';
+        UI.inputbarWrapper.classList.add( 'active' );
+        UI.inputbar.placeholder = 'What shall we do?';
+        UI.inputbar.spellcheck = false;
+        UI.inputbar.value = '';
+        UI.inputbar.type = 'text';
+        UI.inputbar.focus( );
 
-                // EXPRESSION PARSING
+        let activeCommand = null;
+        let argsStack = [ ];
+        let suggestionIndex = 0;
 
-                const lowercase = value.toLowerCase( );
-                const [ command, ... args ] = lowercase.split( ' ' );
+        const suggestions = [ ];
 
-                switch( command ) {
-                    case 'serial': {
-                        const path = 'COM' + args[ 0 ];
-                        const baudRate = Number( args[ 1 ] ) || 115200;
-                        new Instance( 'serial', { path, baudRate } );
-                        break;
+        const updateUI = ( ) => {
+            UI.inputbarTokens.innerHTML = null;
+
+            if( activeCommand ) {
+                $n( {
+                    tag: 'span',
+                    class: 'inputbar-token',
+                    text: activeCommand.title,
+                    parent: UI.inputbarTokens
+                } )
+            }
+
+            for( let i = 0; i < argsStack.length; i++ ) {
+                const arg = argsStack[ i ];
+                const comp = activeCommand.components[ i ];
+
+                $qn( 'span.inputbar-token', UI.inputbarTokens, ( comp && comp.type == 'password' ) ? '****' : arg );
+            }
+
+            if( activeCommand ) {
+                const nextIndex = argsStack.length;
+                const nextComponent = activeCommand.components[ nextIndex ];
+
+                if( nextComponent ) {
+                    UI.inputbar.type = nextComponent.type == 'password' ? 'password' : 'text';
+                    UI.inputbar.placeholder = nextComponent.title + ( nextComponent.default ? ` (Default: ${ nextComponent.default })` : '' );
+                    UI.inputbarHint.innerHTML = `<i class="fa-solid fa-arrow-left"></i> Enter ${ nextComponent.title }`;
+                    UI.inputbarIcon.innerHTML = nextComponent.icon;
+
+                    generateArgSuggestions( nextComponent, UI.inputbar.value );
+                } else {
+                    UI.inputbar.type = 'text';
+                    UI.inputbar.placeholder = 'Press Enter to execute';
+                    UI.inputbarHint.innerHTML = 'Ready';
+                    UI.inputbarSuggestions.innerHTML = null;
+                    suggestions.splice( 0, suggestions.length );
+                }
+            } else {
+                UI.inputbar.type = 'text';
+                UI.inputbar.placeholder = 'What shall we do?';
+                UI.inputbarIcon.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i>';
+                UI.inputbarSuggestions.innerHTML = null;
+                UI.inputbarHint.innerHTML = null;
+            }
+        }
+
+        const renderSuggestions = ( items, type = 'command' ) => {
+            UI.inputbarSuggestions.innerHTML = null;
+            suggestions.splice( 0, suggestions.length );
+            suggestionIndex = 0;
+
+            for( let i = 0; i < items.length; i++ ) {
+                const item = items[ i ];
+                const element = $n( {
+                    tag: 'div',
+                    class: 'inputbar-suggestion',
+                    parent: UI.inputbarSuggestions,
+                    onmousedown: event => {
+                        event.preventDefault( );
+                        acceptSuggestion( i );
                     }
-                    case 'ssh': {
-                        const host = await InputBar( {
-                            grab: true,
-                            icon: '<i class="fa-solid fa-server"></i>',
-                            placeholder: 'Host'
-                        } );
-                        const port = await InputBar( {
-                            grab: true,
-                            type: 'number',
-                            icon: '<i class="fa-solid fa-hashtag"></i>',
-                            placeholder: 'Port',
-                            value: 22
-                        } );
-                        const username = await InputBar( {
-                            grab: true,
-                            icon: '<i class="fa-solid fa-user"></i>',
-                            placeholder: 'Username'
-                        } );
-                        const password = await InputBar( {
-                            grab: true,
-                            type: 'password',
-                            icon: '<i class="fa-solid fa-lock"></i>',
-                            placeholder: 'Password'
-                        } );
-                        new Instance( 'ssh', { host, port, username, password } )
-                        break;
-                    }
-                    case 'telnet': {
-                        break;
-                    }
-                    default: {
-                        new Instance( 'shell', {
-                            shell: CONFIG.shell,
-                            cwd: value
-                        } );
-                        break;
-                    }
+                } );
+
+                if( i == 0 ) element.classList.add( 'active' );
+
+                if( type == 'command' ) {
+                    const argsPreview = item.components.map( component => `[${ component.title }]` ).join( ' ' );
+                    element.innerHTML = `<div><span>${ item.title } ${ argsPreview }</span></div>`;
+                    suggestions.push( {
+                        element,
+                        value: item,
+                        type: 'command'
+                    } );
+                } else {
+                    element.innerText = item.value;
+                    suggestions.push( {
+                        element,
+                        value: item.value,
+                        type: 'value'
+                    } );
                 }
             }
-        } );
+        }
+
+        const generateArgSuggestions = ( component, currentInput ) => {
+            let options = [ ];
+            if( component.default != undefined ) {
+                options.push( {
+                    value: String( component.default ),
+                    isDefault: true
+                } );
+            }
+            const history = CONFIG.history[ component.title ] || [ ];
+            for( const entry of history ) {
+                if( String( entry ) != String( component.default ) ) {
+                    options.push( {
+                        value: String( entry ),
+                        isHistory: true
+                    } );
+                }
+            }
+
+            if( currentInput ) options = options.filter( option => option.value.toLowerCase( ).includes( currentInput.toLowerCase( ) ) );
+            if( options.length > 0 ) {
+                renderSuggestions( options, 'value' );
+                return;
+            }
+            UI.inputbarSuggestions.innerHTML = null;
+            suggestions.splice( 0, suggestions.length );
+        }
+
+        const acceptSuggestion = index => {
+            if( !suggestions.length ) return;
+            const item = suggestions[ index ];
+            if( item.type != 'command' ) {
+                pushArgument( item.value );
+                return;
+            }
+            activeCommand = item.value;
+            UI.inputbar.value = '';
+            updateUI( );
+        }
+
+        const pushArgument = value => {
+            argsStack.push( value );
+            UI.inputbar.value = null;
+            updateUI( );
+        }
+
+        UI.inputbar.oninput = event => {
+            const value = UI.inputbar.value;
+            if( activeCommand ) {
+                const currentComponent = activeCommand.components[ argsStack.length ];
+                if( currentComponent ) generateArgSuggestions( currentComponent, value );
+                return;
+            }
+            if( value.trim( ) == '' ) {
+                UI.inputbarSuggestions.innerHTML = null;
+                suggestions.splice( 0, suggestions.length );
+                return;
+            }
+            const result = fuse.search( value ).map( result => result.item );
+            renderSuggestions( result, 'command' );
+        }
+
+        UI.inputbar.onkeydown = event => {
+            switch( event.key ) {
+                case 'ArrowUp':
+                case 'ArrowDown':
+                    event.preventDefault( );
+                    if( suggestions.length == 0 ) break;
+
+                    suggestions[ suggestionIndex ].element.classList.remove( 'active' );
+                    if( event.key == 'ArrowUp' ) suggestionIndex = ( suggestionIndex - 1 + suggestions.length ) % suggestions.length;
+                    if( event.key == 'ArrowDown' ) suggestionIndex = ( suggestionIndex + 1 ) % suggestions.length;
+                    suggestions[ suggestionIndex ].element.classList.add( 'active' );
+                    break;
+                case ' ':
+                    if( !activeCommand ) {
+                        if( suggestions.length > 0 ) {
+                            event.preventDefault( );
+                            acceptSuggestion( suggestionIndex );
+                        }
+                    } else {
+                        if( UI.inputbar.value.trim( ) != '' ) {
+                            event.preventDefault( );
+                            pushArgument( UI.inputbar.value );
+                        }
+                    }
+                    break;
+                case 'Enter':
+                    event.preventDefault( );
+
+                    if( !activeCommand ) {
+                        if( suggestions.length > 0 ) acceptSuggestion( suggestionIndex );
+                        break;
+                    }
+
+                    const ready = argsStack.length == activeCommand.components.length;
+                    if( ready ) {
+                        for( let i = 0; i < argsStack.length; i++ ) {
+                            const value = argsStack[ i ];
+                            const component = activeCommand.components[ i ];
+                            if( component.type == 'password' ) continue;
+                            const key = component.title;
+                            if( !CONFIG.history[ key ] ) CONFIG.history[ key ] = [ ];
+                            if( !CONFIG.history[ key ].includes( value ) ) CONFIG.history[ key ].push( value );
+                        }
+                        activeCommand.handler( ... argsStack );
+                        UI.inputbarWrapper.classList.remove( 'active' );
+                        activeCommand = null;
+                        argsStack = [ ];
+                        updateUI( );
+                        break;
+                    }
+
+                    if( suggestions.length > 0 ) {
+                        acceptSuggestion( suggestionIndex );
+                    } else if( UI.inputbar.value.trim( ) != '' ) {
+                        pushArgument( UI.inputbar.value );
+                    }
+                    break;
+                case 'Backspace':
+                    if( UI.inputbar.value != '' ) break;
+                    if( argsStack.length > 0 ) {
+                        event.preventDefault( );
+                        const value = argsStack.pop( );
+                        UI.inputbar.value = value;
+                        updateUI( );
+                    } else if( activeCommand ) {
+                        event.preventDefault( );
+                        activeCommand = null;
+                        updateUI( );
+                    }
+                    break;
+            }
+        }
+
+        updateUI( );
     }
 
 } )( );

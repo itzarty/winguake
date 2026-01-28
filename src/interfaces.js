@@ -5,13 +5,15 @@ const { SerialPort } = require( 'serialport' );
 
 const psTree = require( 'ps-tree' );
 
-const IShell = ( { write, exit, ready }, { file, cwd, shell } ) => {
+const IShell = ( { write, exit, ready, announce }, { file, cwd, shell } ) => {
     const ptyProcess = pty.spawn( shell, file ? [ file ] : [ ], {
         name: 'xterm-color',
         cols: 80,
         rows: 30,
         cwd: cwd || process.env.HOME
     } );
+
+    announce( 'PID', ptyProcess.pid );
 
     ptyProcess.onData( write );
     ptyProcess.onExit( exit );

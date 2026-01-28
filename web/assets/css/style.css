@@ -181,6 +181,54 @@ body {
 .tab.bell::after {
     animation: tabBell 1s infinite;
 }
+.tab-progress {
+    position: absolute;
+    top: 0px;
+    left: 0px;
+    bottom: 0px;
+    display: flex;
+    background-color: rgba( 125, 125, 125, 0.25 );
+    z-index: 5;
+    pointer-events: none;
+    opacity: 0;
+    /* TODO */
+    transition: 0.25s;
+}
+.tab-progress.active {
+    opacity: 1;
+}
+@keyframes progressMarquee {
+    from { background-position: 0 0; }
+    to { background-position: 40px 0; }
+}
+.tab-progress.marquee {
+    width: 100% !important;
+    background-color: transparent;
+    background-image: linear-gradient(
+      45deg, 
+      rgba( 125, 125, 125, 0.25 ) 25%, 
+      transparent 25%, 
+      transparent 50%, 
+      rgba( 125, 125, 125, 0.25 ) 50%, 
+      rgba( 125, 125, 125, 0.25 ) 75%, 
+      transparent 75%, 
+      transparent
+    );
+    background-size: 40px 40px;
+    animation: progressMarquee 2s linear infinite;
+}
+@keyframes progressPaused {
+    0% { background-position: 0 0; }
+    50% { background-position: 100% 0; }
+    100% { background-position: 0 0; }
+}
+.tab-progress.paused {
+    width: 100%;
+    background-color: transparent;
+    background-image: linear-gradient( 90deg, transparent, rgba( 125, 125, 125, 0.25 ), transparent );
+    background-size: 200%;
+    animation: progressPaused 2s ease-in-out infinite;
+}
 .wrapper-groups {
     display: flex;
     flex: 1;
@@ -782,4 +830,48 @@ textarea {
 }
 .report.active {
     opacity: 1;
+}
+
+
+
+
+.inputbar-tokens {
+    display: flex;
+    grid-gap: 0.5rem;
+}
+.inputbar-token {
+    display: flex;
+    background-color: rgba( 125, 125, 125, 0.15 );
+    padding: 0px 0.5rem;
+    height: 1.25rem;
+    align-items: center;
+    border-radius: 2px;
+    color: #cccccc;
+    font-size: 0.8em;
+    border: 1px solid rgba( 125, 125, 125, 0.25 );
+    white-space: nowrap;
+}
+
+.inputbar-suggestions {
+    margin-top: 0.5rem;
+    background-color: rgba( 15, 15, 15, 0.85 );
+    border: 1px solid rgba( 125, 125, 125, 0.15 );
+    border-radius: 2px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    z-index: 5;
+}
+
+.inputbar-suggestion {
+    height: 2rem;
+    align-items: center;
+    cursor: pointer;
+    display: flex;
+    padding: 0px 0.5rem;
+    font-size: 0.85rem;
+}
+.inputbar-suggestion.active {
+    background: rgba( 125, 125, 125, 0.15 );
+    color: white;
 }

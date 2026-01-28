@@ -1,3 +1,1 @@
-* small cleanup
-* typo corrections
-* pane separator removal fix
+* updated omnibox
