@@ -67,7 +67,7 @@ const ConfigBuilder = ( entries, parent ) => {
                     if( typeof mod.max == 'number' ) input.max = mod.max;
                     if( mod.step ) input.step = mod.step;
                     if( typeof mod.value == 'number' ) input.value = mod.value;
-                    input.oninput = ( ) => emit( input.value, i );
+                    input.oninput = ( ) => emit( Number( input.value ), i );
                     break;
                 }
                 case 'button': {

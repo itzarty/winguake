@@ -52,6 +52,9 @@ body {
 
     border: 1px solid rgba( 125, 125, 125, 0.25 );
 }
+.container {
+    /* background-image: repeating-linear-gradient( 45deg, #1c1c1c2f, #1f1f1f2f 5px ); */
+}
 .container.ghost {
     opacity: 0.35;
     filter: grayscale(1);
@@ -359,16 +362,25 @@ body {
 .modal-close {
     display: flex;
 }
-.modal-body {
-    display: none;
-    padding: var(--spacing);
-    grid-gap: var(--spacing);
-    flex-direction: column;
-    background-color: rgba( 75, 75, 75, 0.25 );
+.modal-content {
+	display: flex;
+	background-color: rgba( 75, 75, 75, 0.25 );
+	flex: 1;
+	justify-content: center;
+	position: relative;
+	overflow: auto;
     border-radius: var(--radius);
-    box-sizing: border-box;
-    flex: 1;
-    overflow-y: auto;
+    align-items: start;
+}
+.modal-body {
+	display: none;
+	min-width: 100%;
+    min-height: 100%;
+	padding: var(--spacing);
+	box-sizing: border-box;
+	overflow: auto;
+	flex-direction: column;
+	grid-gap: var(--spacing);
 }
 .modal-body.active {
     display: flex;
@@ -380,7 +392,6 @@ body {
     border-radius: var(--radius);
     height: 2.5rem;
     overflow: hidden;
-    flex-shrink: 0;
 }
 .kv > .k {
     display: flex;
@@ -416,7 +427,6 @@ span.separator {
     justify-content: center;
     height: 2.5rem;
     opacity: 0.5;
-    flex-shrink: 0;
 }
 
 .kv > .v > input {
@@ -851,6 +861,9 @@ textarea {
     border: 1px solid rgba( 125, 125, 125, 0.25 );
     white-space: nowrap;
 }
+.inputbar-token.error {
+    border-color: crimson
+}
 
 .inputbar-suggestions {
     margin-top: 0.5rem;
@@ -874,4 +887,11 @@ textarea {
 .inputbar-suggestion.active {
     background: rgba( 125, 125, 125, 0.15 );
     color: white;
+}
+
+.broadcast-wrapper {
+    position: fixed;
+    top: -100%;
+    left: -100%;
+    display: flex;
 }

@@ -1,7 +1,5 @@
 ( async ( ) => {
 
-    const Benchmark = require( './src/benchmark.js' );
-
     const {
         app,
         BrowserWindow,
@@ -31,9 +29,11 @@
 		return;
 	}
 
+    const debugFlag = process.argv.includes( '--debug' );
+
     const info = {
         version: app.getVersion( ),
-        release: app.isPackaged,
+        release: app.isPackaged && !debugFlag,
         platform: process.platform,
         target: process.argv.at( -1 )
     }
@@ -94,7 +94,6 @@
     window.loadFile( 'web/index.html' );
 
     let returnTo;
-
     let multipliers = { x: 0, y: 0, height: 0.5, width: 1 }
 
     const show = ( ) => {
@@ -114,11 +113,13 @@
 
         window.setSize( Math.floor( width * multipliers.width ), Math.floor( height * multipliers.height ) );
 
-        window.show( );
         if( info.platform == 'win32' ) {
             // don't tell microsoft about this one
+            uIOhook.keyToggle( UiohookKey.Alt, 'down' );
             uIOhook.keyToggle( UiohookKey.Alt, 'up' );
         }
+
+        window.show( );
         window.focus( );
     }
 
@@ -343,6 +344,7 @@
 
                 answer( true, { ... interface } );
             } catch( error ) {
+                console.error( error );
                 exit( );
             }
             show( );

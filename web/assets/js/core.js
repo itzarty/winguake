@@ -2,6 +2,7 @@
 
     const os = require( 'os' );
     const fs = require( 'fs' );
+    const dns = require( 'dns' );
     const IPC = require( './ipc.js' );
     const { getFonts } = require( 'font-list' );
 
@@ -177,6 +178,7 @@
         modalBack: $s( '.modal-back' ),
         modalAction: $s( '.modal-action' ),
         modalClose: $s( '.modal-close' ),
+        modalContent: $s( '.modal-content' ),
         wrapperGroups: $s( '.wrapper-groups' ),
         tabGroups: $s( '.tab-groups' ),
         boundaries: {
@@ -191,7 +193,8 @@
         inputbarIcon: $s( '.inputbar-icon' ),
         inputbarSuggestions: $s( '.inputbar-suggestions' ),
         inputbarTokens: $s( '.inputbar-tokens' ),
-        inputbarHint: $s( '.inputbar-hint' )
+        inputbarHint: $s( '.inputbar-hint' ),
+        broadcastWrapper: $s( '.broadcast-wrapper' )
     }
 
     const Language = {
@@ -314,7 +317,7 @@
         const body = $n( {
             tag: 'div',
             class: 'modal-body',
-            parent: UI.modal
+            parent: UI.modalContent
         } );
 
         modals.push( {
@@ -338,6 +341,8 @@
 
     UI.modalClose.onclick = UI.modalWrapper.onclick = modalClose;
     UI.modal.onclick = event => event.stopPropagation( );
+
+    const broadcast = new Set( );
 
     const Groups = [ ];
     let activeGroup = null;
@@ -739,21 +744,26 @@
             this.terminal.onBell( this.bell );
 
             this.terminal.attachCustomWheelEventHandler( event => {
-                if( !event.ctrlKey ) return;
+                if( !event.ctrlKey ) {
+                    event.preventDefault( );
+                    return;
+                }
                 const delta = event.deltaY > 0 ? 1 : -1;
                 const size = this.terminal.options.fontSize + delta;
                 if( size < 8 || size > 64 ) return;
                 this.setFont( false, size );
             } );
 
-            this.terminal.element.addEventListener( 'click', ( ) => {
-                this.focus( false );
+            this.terminal.element.addEventListener( 'click', event => {
+                console.log( 'event called' );
+                this.focus( false, event.shiftKey );
             } );
 
             this.terminal.attachCustomKeyEventHandler( event => {
-                this.focus( false );
+                this.focus( false, true );
 
                 if( !event.ctrlKey ) return;
+
                 if( event.key == '+' ) {
                     const size = this.terminal.options.fontSize + 1;
                     if( size > 64 ) return;
@@ -825,7 +835,9 @@
         in = data => this.terminal.write( data )
         out = data => {
             if( !this.ipc ) return;
-            this.ipc.write( data )
+            for( const instance of broadcast ) {
+                instance.ipc.write( data );
+            }
         }
         changeTitle = ( title = 'Untitled' ) => {
             this.title = title.split( '\\' ).at( -1 );
@@ -863,7 +875,13 @@
             this.wrapperElement.classList.remove( 'active' );
             this.terminal.blur( );
         }
-        focus = activate => {
+        focus = ( activate, broadcastFlag = false ) => {
+            if( !broadcastFlag ) {
+                broadcast.clear( );
+            }
+            broadcast.add( this );
+            this.wrapperElement.classList.add( 'active' );
+            console.log( 'Broadcasting to', broadcast );
             this.group.focus( this, activate );
         }
         activate = ( ) => {
@@ -1020,15 +1038,9 @@
     } );
 
     const renderBinder = ( bind, parent ) => {
-        const current = CONFIG.binds[ bind ];
-        const rendered = current.split( '+' ).map( key => {
-            if( key == 'Meta' ) key = '<i class="fa-brands fa-windows"></i>'
-            if( key == 'Shift' ) key = '<i class="fa-solid fa-angles-down"></i>'
-            return key
-        } ).join( ' + ' );
         $n( {
             tag: 'button',
-            html: rendered,
+            html: CONFIG.binds[ bind ],
             parent,
             onclick: ( ) => {
                 getKeyCombination( ).then( combination => {
@@ -1054,7 +1066,7 @@
         if( fontCache.updated + ( 1000 * 60 * 5 ) < stamp ) {
             const fonts = await getFonts( );
 
-            const map = fonts.map(f=>Object({d:(f.startsWith('"')&&f.endsWith('"')?f.slice(1,-1):f), f})).sort((a,b)=>a.d-b.d).reduce((x, i)=>{x[i.f]=i.d;return x},{});
+            const map = fonts.map(f=>Object({d:(f.startsWith('"')&&f.endsWith('"')?f.slice(1,-1):f),f})).sort((a,b)=>a.d-b.d).reduce((x, i)=>{x[i.f]=i.d;return x},{});
             fontCache.fonts = map;
             fontCache.updated = stamp;
         }
@@ -1931,19 +1943,20 @@
                 new Instance( 'ssh', { host, port, username, password } );
             },
             components: [
-                { 
+                {
                     title: 'Hostname',
                     type: 'text',
                     default: '127.0.0.1',
-                    icon: '<i class="fa-solid fa-server"></i>'
+                    icon: '<i class="fa-solid fa-server"></i>',
+                    validate: ( value, resolve ) => dns.lookup( value, error => resolve( !Boolean( error ) ) )
                 },
-                { 
+                {
                     title: 'Port',
                     type: 'number',
                     default: 22,
                     icon: '<i class="fa-solid fa-hashtag"></i>'
                 },
-                { 
+                {
                     title: 'Username',
                     type: 'text',
                     default: 'root',
@@ -1959,14 +1972,19 @@
         {
             title: 'serial',
             handler: ( path, baudRate ) => {
-                new Instance( 'serial', { path, baudRate } );
+                new Instance( 'serial', {
+                    path,
+                    baudRate: Number( baudRate )
+                } );
             },
             components: [
                 {
                     title: 'Port',
-                    type: 'number',
-                    default: 1,
-                    icon: '<i class="fa-solid fa-hashtag"></i>'
+                    type: 'text',
+                    icon: '<i class="fa-solid fa-hashtag"></i>',
+                    suggest: resolve => {
+                        send( 'serialDevices' ).then( devices => resolve( devices.map( device => device.path ) ) );
+                    }
                 },
                 {
                     title: 'Baudrate',
@@ -2034,7 +2052,16 @@
                 const arg = argsStack[ i ];
                 const comp = activeCommand.components[ i ];
 
-                $qn( 'span.inputbar-token', UI.inputbarTokens, ( comp && comp.type == 'password' ) ? '****' : arg );
+                const element = $qn( 'span.inputbar-token', UI.inputbarTokens, ( comp && comp.type == 'password' ) ? '****' : arg );
+                if( comp.validate ) {
+                    comp.validate( arg, valid => {
+                        if( valid ) {
+                            element.classList.remove( 'error' );
+                        } else {
+                            element.classList.add( 'error' );
+                        }
+                    } );
+                }
             }
 
             if( activeCommand ) {
@@ -2110,12 +2137,18 @@
                     isDefault: true
                 } );
             }
-            const history = CONFIG.history[ component.title ] || [ ];
-            for( const entry of history ) {
+
+            const entries = CONFIG.history[ component.title ] || [ ];
+            if( component.suggest ) {
+                component.suggest( result => {
+                    entries.push( ... result );
+                } );
+            }
+
+            for( const entry of entries ) {
                 if( String( entry ) != String( component.default ) ) {
                     options.push( {
-                        value: String( entry ),
-                        isHistory: true
+                        value: String( entry )
                     } );
                 }
             }
